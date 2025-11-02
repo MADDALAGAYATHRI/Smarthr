@@ -20,6 +20,14 @@ const HRNotificationsLog = () => {
 
     return (
         <div className="space-y-8">
+             <div className="p-4 bg-sky-50 border border-sky-200 rounded-lg text-sm text-sky-800">
+                <h4 className="font-bold mb-2 flex items-center space-x-2">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    <span>New: Automated Email Agent</span>
+                </h4>
+                <p>To improve communication, application status updates are now automatically emailed to candidates. When you change a candidate's status, our AI agent drafts and sends a professional notification to the email address extracted from their resume.</p>
+            </div>
+
             {jobsNeedingProcessing.length > 0 && (
                 <div className="bg-white p-6 rounded-xl shadow-lg border border-slate-200">
                     <h3 className="text-xl font-bold text-slate-900 mb-4">Action Required</h3>
@@ -59,7 +67,7 @@ const HRNotificationsLog = () => {
                     </div>
                 ) : (
                     <div className="text-center py-12">
-                         <svg className="w-16 h-16 text-slate-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                         <svg className="w-16 h-16 text-slate-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
                         <h3 className="text-xl font-bold text-slate-800">Your Inbox is Empty</h3>
                         <p className="text-slate-500">Notifications, such as new candidate applications, will appear here.</p>
                     </div>

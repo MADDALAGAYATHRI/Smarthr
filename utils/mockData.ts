@@ -1,4 +1,5 @@
 import type { User, Job, Candidate, Application, UserProfile, Question } from '../types';
+import { generateCompanyLogo } from './logoGenerator';
 
 export const MOCK_USERS: User[] = [
   { id: 'hr-1', name: 'Alice HR', email: 'alice@example.com', password: 'password', role: 'HR', status: 'active' },
@@ -11,6 +12,8 @@ export const MOCK_JOBS: Job[] = [
     id: 'job-1',
     hrId: 'hr-1',
     title: 'Frontend Developer',
+    companyName: 'Innovate Tech Inc.',
+    companyLogo: generateCompanyLogo('Innovate Tech Inc.'),
     description: 'Join our team to build amazing user interfaces.',
     requirements: 'React, TypeScript, CSS',
     location: 'San Francisco, CA',
@@ -21,13 +24,14 @@ export const MOCK_JOBS: Job[] = [
     workModel: 'Hybrid',
     minAtsScore: 75,
     numberOfPositions: 2,
-    processingStatus: 'Pending',
-    aiInterviewAfterScreening: true,
+    attachments: [],
   },
   {
     id: 'job-2',
     hrId: 'hr-1',
     title: 'Backend Engineer',
+    companyName: 'Data Solutions LLC',
+    companyLogo: generateCompanyLogo('Data Solutions LLC'),
     description: 'Work on our core infrastructure and services.',
     requirements: 'Node.js, Python, AWS',
     location: 'New York, NY',
@@ -38,13 +42,14 @@ export const MOCK_JOBS: Job[] = [
     workModel: 'Remote',
     minAtsScore: 80,
     numberOfPositions: 1,
-    processingStatus: 'Pending',
-    aiInterviewAfterScreening: true,
+    attachments: [],
   },
   {
     id: 'job-3',
     hrId: 'hr-1',
     title: 'UX Designer',
+    companyName: 'Creative Minds Studio',
+    companyLogo: generateCompanyLogo('Creative Minds Studio'),
     description: 'Design intuitive and beautiful user experiences.',
     requirements: 'Figma, Sketch, User Research',
     location: 'Remote',
@@ -53,6 +58,7 @@ export const MOCK_JOBS: Job[] = [
     createdAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
     applicationDeadline: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(),
     workModel: 'Remote',
+    attachments: [],
   }
 ];
 

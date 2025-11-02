@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { useSmartHire } from '../../hooks/useSmartHire';
 import type { Job } from '../../types';
@@ -130,17 +131,17 @@ const CalendarView = () => {
 
     return (
         <div className="bg-white p-6 rounded-xl shadow-lg border border-slate-200">
-             <div className="grid grid-cols-1 lg:grid-cols-10 gap-6">
+             <div className="grid grid-cols-1 lg:grid-cols-10 gap-8">
                 <div className="lg:col-span-7">
                     <div className="flex justify-between items-center mb-4">
                         <h3 className="text-xl font-bold text-slate-900">{dateFns.format(currentDate, 'MMMM yyyy')}</h3>
                         <div className="flex items-center space-x-1">
                             <button onClick={handleGoToToday} className="px-3 py-1.5 rounded-md text-sm font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors">Today</button>
                             <button onClick={handlePrevMonth} aria-label="Previous month" className="p-2 rounded-full hover:bg-slate-100 transition-colors">
-                                <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
+                                <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
                             </button>
                             <button onClick={handleNextMonth} aria-label="Next month" className="p-2 rounded-full hover:bg-slate-100 transition-colors">
-                                <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
+                                <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
                             </button>
                         </div>
                     </div>
@@ -156,19 +157,19 @@ const CalendarView = () => {
                             const isSelected = selectedDate && dateFns.isSameDay(day, selectedDate);
 
                             return (
-                                <div key={i} onClick={() => handleDayClick(day)} className={`relative flex flex-col h-24 p-1.5 rounded-lg cursor-pointer transition-colors border ${isCurrentMonth ? 'bg-white hover:bg-slate-50' : 'bg-slate-50 text-slate-400'} ${isSelected ? 'border-primary shadow-md' : 'border-slate-200'}`}>
+                                <div key={i} onClick={() => handleDayClick(day)} className={`relative flex flex-col h-28 p-2 rounded-lg cursor-pointer transition-colors border ${isCurrentMonth ? 'bg-white hover:bg-slate-50' : 'bg-slate-50 text-slate-400'} ${isSelected ? 'border-primary ring-2 ring-primary/50' : 'border-slate-200'}`}>
                                     <span className={`self-end text-sm font-semibold ${isToday ? 'bg-primary text-white rounded-full w-6 h-6 flex items-center justify-center' : 'p-1'}`}>
                                         {dateFns.format(day, 'd')}
                                     </span>
                                     {dayEvents.length > 0 && isCurrentMonth && (
                                         <div className="mt-1 space-y-1 overflow-hidden">
-                                            {dayEvents.slice(0, 1).map((event, index) => (
-                                                <div key={index} className={`flex items-center text-xs px-1.5 py-0.5 rounded-md ${event.type === 'deadline' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
+                                            {dayEvents.slice(0, 2).map((event, index) => (
+                                                <div key={index} className="flex items-center text-xs">
                                                     <div className={`w-1.5 h-1.5 rounded-full mr-1.5 flex-shrink-0 ${event.type === 'deadline' ? 'bg-blue-500' : 'bg-green-500'}`}></div>
-                                                    <span className="truncate">{event.title}</span>
+                                                    <span className={`truncate ${event.type === 'deadline' ? 'text-blue-800' : 'text-green-800'}`}>{event.title}</span>
                                                 </div>
                                             ))}
-                                            {dayEvents.length > 1 && <p className="text-xs text-slate-500 mt-1 pl-1.5">+{dayEvents.length - 1} more</p>}
+                                            {dayEvents.length > 2 && <p className="text-xs text-slate-500 mt-1 pl-1.5">+{dayEvents.length - 2} more</p>}
                                         </div>
                                     )}
                                 </div>
@@ -183,15 +184,24 @@ const CalendarView = () => {
                     {selectedDayEvents.length > 0 ? (
                         <div className="space-y-3 overflow-y-auto">
                             {selectedDayEvents.map((event, i) => (
-                                <div key={i} className={`p-3 rounded-lg border-l-4 ${event.type === 'deadline' ? 'border-blue-500 bg-blue-50' : 'border-green-500 bg-green-50'}`}>
-                                    <p className="font-bold text-slate-800 text-sm">{event.title}</p>
-                                    <p className="text-xs text-slate-600">{event.jobTitle}</p>
-                                    {event.time && (
-                                        <div className="flex items-center text-xs text-slate-600 mt-1">
-                                            <svg className="w-3 h-3 mr-1.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                                            <span>{event.time}</span>
-                                        </div>
-                                    )}
+                                <div key={i} className={`p-3 rounded-lg flex items-start space-x-3 border-l-4 ${event.type === 'deadline' ? 'border-blue-500 bg-blue-50' : 'border-green-500 bg-green-50'}`}>
+                                    <div className={`mt-1 w-5 h-5 flex-shrink-0 ${event.type === 'deadline' ? 'text-blue-500' : 'text-green-500'}`}>
+                                        {event.type === 'deadline' ? (
+                                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                        ) : (
+                                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <p className="font-bold text-slate-800 text-sm">{event.title}</p>
+                                        <p className="text-xs text-slate-600">{event.jobTitle}</p>
+                                        {event.time && (
+                                            <div className="flex items-center text-xs text-slate-600 mt-1">
+                                                <svg className="w-3 h-3 mr-1.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                                <span>{event.time}</span>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             ))}
                         </div>

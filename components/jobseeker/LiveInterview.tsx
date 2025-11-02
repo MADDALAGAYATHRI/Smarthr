@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSmartHire } from '../../hooks/useSmartHire';
-// FIX: The 'LiveSession' type is not exported from '@google/genai'. Removing it from the import.
 import { Modality, LiveServerMessage, Blob as GenAI_Blob } from '@google/genai';
 import type { Job, Candidate, Application } from '../../types';
 
-// FIX: To resolve the missing 'LiveSession' type, a local interface is defined with only the methods used in this component.
 interface LiveSession {
   sendRealtimeInput(input: { media: GenAI_Blob }): void;
   close(): void;
@@ -68,6 +66,13 @@ interface LiveInterviewProps {
 }
 
 type InterviewStatus = 'Idle' | 'RequestingPermissions' | 'Ready' | 'Connecting' | 'InProgress' | 'Stopping' | 'Complete' | 'Error';
+
+const AiAvatar = ({ isSpeaking }: { isSpeaking: boolean }) => (
+    <div className={`relative w-16 h-16 rounded-full flex items-center justify-center bg-primary/20 transition-all duration-300 ${isSpeaking ? 'scale-110' : ''}`}>
+        <div className={`absolute inset-0 rounded-full bg-primary/30 animate-ping ${isSpeaking ? 'opacity-100' : 'opacity-0'}`}></div>
+        <svg className="w-10 h-10 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+    </div>
+);
 
 const LiveInterview = ({ application, onClose }: LiveInterviewProps) => {
     const { ai, saveVideoInterview } = useSmartHire();
@@ -255,8 +260,6 @@ const LiveInterview = ({ application, onClose }: LiveInterviewProps) => {
         switch (status) {
             case 'InProgress':
                 return isAiSpeaking ? 'AI is speaking...' : 'Your turn to speak.';
-            case 'Connecting':
-                return 'Connecting...';
             case 'Ready':
                 return 'The interview will begin when you are ready.';
             default:
@@ -264,55 +267,43 @@ const LiveInterview = ({ application, onClose }: LiveInterviewProps) => {
         }
     };
 
-    const renderContent = () => {
-        switch (status) {
-            case 'Complete':
-                return (
-                    <div className="text-center">
-                        <h3 className="text-2xl font-bold text-slate-900">Interview Complete!</h3>
-                        <p className="text-slate-600 my-4">Your interview has been recorded and submitted to the hiring team. The AI is now analyzing your responses. You can close this window.</p>
-                        <button onClick={onClose} className="bg-primary text-white font-bold py-2 px-6 rounded-lg hover:bg-primary-dark">Close</button>
-                    </div>
-                );
-            case 'Error':
-                return (
-                    <div className="text-center">
-                        <h3 className="text-2xl font-bold text-red-600">An Error Occurred</h3>
-                        <p className="text-slate-600 my-4">{error}</p>
-                        <button onClick={onClose} className="bg-slate-200 text-slate-800 font-bold py-2 px-6 rounded-lg hover:bg-slate-300">Close</button>
-                    </div>
-                );
-            default:
-                return (
-                    <div className="text-center">
-                         <h3 className="text-2xl font-bold text-slate-900">AI Video Interview</h3>
-                         <p className="text-slate-600 mb-4">For the position of <span className="font-semibold">{application.job.title}</span></p>
-                         <div className="relative w-full aspect-video bg-slate-900 rounded-lg overflow-hidden mb-4 border-4 border-slate-200 shadow-lg">
-                            <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover transform scale-x-[-1]"></video>
-                            {status === 'InProgress' && <div className="absolute top-4 left-4 flex items-center space-x-2 bg-red-600 text-white text-sm font-bold px-3 py-1 rounded-full animate-pulse"><div className="w-2.5 h-2.5 bg-white rounded-full"></div><span>REC</span></div>}
-                         </div>
-                         <div className="h-20 bg-slate-100 rounded-lg p-3 text-lg text-slate-700 overflow-y-auto mb-4 flex items-center justify-center">
-                            <p className={`transition-opacity ${isAiSpeaking ? 'text-primary font-semibold' : 'text-slate-500 italic'}`}>
-                                {getInterviewPrompt()}
-                            </p>
-                         </div>
-                        {status === 'Ready' && (
-                            <div className="space-y-4 max-w-sm mx-auto">
-                                <button onClick={startInterview} className="bg-primary text-white font-bold py-3 px-8 rounded-lg hover:bg-primary-dark w-full">Begin Interview</button>
-                            </div>
-                        )}
-                         {status === 'Connecting' && <p className="font-semibold text-slate-700">Connecting to AI Interviewer...</p>}
-                         {status === 'InProgress' && <button onClick={stopInterview} className="bg-red-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-red-700">Finish Interview</button>}
-                         {(status === 'Stopping' || status === 'RequestingPermissions') && <p className="font-semibold text-slate-700">Please wait...</p>}
-                    </div>
-                );
-        }
-    };
+    const renderCurtain = (title: string, message: string) => (
+        <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-sm flex flex-col items-center justify-center text-white z-20 animate-fade-in">
+            <h3 className="text-3xl font-bold">{title}</h3>
+            <p className="mt-2 text-slate-300">{message}</p>
+        </div>
+    );
 
     return (
         <div className="fixed inset-0 bg-white z-[100] p-4 sm:p-8 flex items-center justify-center">
-            <div className="w-full max-w-2xl">
-                 {renderContent()}
+            <div className="w-full max-w-2xl text-center">
+                 <h3 className="text-2xl font-bold text-slate-900">AI Video Interview</h3>
+                 <p className="text-slate-600 mb-4">For the position of <span className="font-semibold">{application.job.title}</span></p>
+                 
+                 <div className="relative w-full aspect-video bg-slate-900 rounded-lg overflow-hidden mb-4 border-4 border-slate-200 shadow-lg">
+                    {status === 'Connecting' && renderCurtain('Connecting...', 'Please wait while we connect you to the AI interviewer.')}
+                    {status === 'Complete' && renderCurtain('Interview Complete!', 'Your interview has been submitted for analysis.')}
+                    {status === 'Error' && renderCurtain('Error', error || 'An unknown error occurred.')}
+                    <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover transform scale-x-[-1]"></video>
+                    {status === 'InProgress' && <div className="absolute top-4 left-4 flex items-center space-x-2 bg-red-600 text-white text-sm font-bold px-3 py-1 rounded-full animate-pulse"><div className="w-2.5 h-2.5 bg-white rounded-full"></div><span>REC</span></div>}
+                 </div>
+
+                 <div className="h-20 mb-4 flex flex-col items-center justify-center">
+                    <AiAvatar isSpeaking={isAiSpeaking && status === 'InProgress'} />
+                    <p className={`mt-2 font-semibold transition-all ${isAiSpeaking ? 'text-primary' : 'text-slate-600'}`}>
+                        {getInterviewPrompt()}
+                    </p>
+                 </div>
+
+                {status === 'Ready' && (
+                    <div className="space-y-4 max-w-sm mx-auto">
+                        <button onClick={startInterview} className="bg-primary text-white font-bold py-3 px-8 rounded-lg hover:bg-primary-dark w-full">Begin Interview</button>
+                    </div>
+                )}
+                 {status === 'Connecting' && <p className="font-semibold text-slate-700">Connecting to AI Interviewer...</p>}
+                 {status === 'InProgress' && <button onClick={stopInterview} className="bg-red-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-red-700">Finish Interview</button>}
+                 {(status === 'Stopping' || status === 'RequestingPermissions') && <p className="font-semibold text-slate-700">Please wait...</p>}
+                 {(status === 'Complete' || status === 'Error') && <button onClick={onClose} className="mt-4 bg-slate-200 text-slate-800 font-bold py-2 px-6 rounded-lg hover:bg-slate-300">Close</button>}
             </div>
         </div>
     );

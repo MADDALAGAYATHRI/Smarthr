@@ -1,9 +1,11 @@
+
 import React, { useState, useMemo, useCallback, Fragment, useEffect, useRef } from 'react';
 import { useSmartHire } from '../../hooks/useSmartHire';
 import type { Job, Candidate, ApplicationStatus, Question, Application, CommunicationAnalysis } from '../../types';
 import EmailComposeModal from './EmailComposeModal';
 import CalendarView from './CalendarView';
 import HRNotificationsLog from './HRNotificationsLog';
+import VideoAnalysisAgentView from './VideoAnalysisAgentView';
 
 // --- STYLE CONSTANTS ---
 const inputStyle = "w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-shadow";
@@ -32,7 +34,7 @@ const ScoreDonut = ({ score, size = 48 }: { score: number; size?: number; }) => 
     return (
         <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
             <svg className="absolute" width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-                <circle className="stroke-slate-200" strokeWidth="4" fill="transparent" r={radius} cx={size / 2} cy={size / 2} />
+                <circle className="stroke-slate-200" strokeWidth="4" fill="transparent" r={radius} cx={size / 2} cy={size / 2}></circle>
                 <circle
                     className={`${getStrokeColor()} transition-all duration-1000 ease-out`}
                     strokeWidth="4" strokeDasharray={circumference} strokeDashoffset={offset}
@@ -40,7 +42,7 @@ const ScoreDonut = ({ score, size = 48 }: { score: number; size?: number; }) => 
                     r={radius} cx={size / 2} cy={size / 2}
                     style={{ transition: 'stroke-dashoffset 1s ease-out' }}
                     transform={`rotate(-90 ${size / 2} ${size / 2})`}
-                />
+                ></circle>
             </svg>
             <span className={`text-sm font-bold ${getTextColor()}`}>{score}</span>
         </div>
@@ -51,7 +53,7 @@ const getStatusStyles = (status?: ApplicationStatus) => {
     switch (status) {
         case 'Interviewing': return 'bg-blue-100 text-blue-800';
         case 'Hired': return 'bg-indigo-100 text-indigo-800';
-        case 'Rejected': return 'bg-slate-100 text-slate-800';
+        case 'Rejected': return 'bg-red-100 text-red-800';
         case 'Under Review':
         default: return 'bg-sky-100 text-sky-800';
     }
@@ -65,22 +67,40 @@ const JobEditorModal = ({ onClose, jobToEdit }: { onClose: () => void, jobToEdit
 
     const [jobData, setJobData] = useState({
         title: jobToEdit?.title || '',
+        companyName: jobToEdit?.companyName || '',
         description: jobToEdit?.description || '',
         requirements: jobToEdit?.requirements || '',
         location: jobToEdit?.location || '',
         salary: jobToEdit?.salary || '',
         workModel: jobToEdit?.workModel || 'On-site',
         applicationDeadline: jobToEdit?.applicationDeadline ? new Date(jobToEdit.applicationDeadline).toISOString().split('T')[0] : '',
-        requireSelfVideo: jobToEdit?.requireSelfVideo || false,
-        selfVideoQuestion: jobToEdit?.selfVideoQuestion || 'Tell us about a challenging project you have worked on and what you learned from it.',
-        aiInterviewAfterScreening: jobToEdit?.aiInterviewAfterScreening ?? true,
+        isVideoIntroRequired: jobToEdit?.isVideoIntroRequired ?? true,
     });
+
+    const [attachments, setAttachments] = useState<{name: string, url: string}[]>(jobToEdit?.attachments || []);
+    const [newAttachments, setNewAttachments] = useState<File[]>([]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value, type } = e.target;
         const isCheckbox = type === 'checkbox';
         setJobData(prev => ({ ...prev, [name]: isCheckbox ? (e.target as HTMLInputElement).checked : value }));
     };
+    
+    const handleAttachmentUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files) {
+            setNewAttachments(prev => [...prev, ...Array.from(e.target.files!)]);
+        }
+        e.target.value = ''; // Reset file input
+    };
+    
+    const removeAttachment = (index: number) => {
+        setAttachments(prev => prev.filter((_, i) => i !== index));
+    };
+    
+    const removeNewAttachment = (index: number) => {
+        setNewAttachments(prev => prev.filter((_, i) => i !== index));
+    };
+
 
     const handleJdUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -97,7 +117,7 @@ const JobEditorModal = ({ onClose, jobToEdit }: { onClose: () => void, jobToEdit
             }));
         } catch (err) {
             console.error("Failed to parse Job Description:", err);
-            alert("Could not parse the job description file. Please ensure it's a text-based file and try again.");
+            alert("Could not parse the job description file. Please ensure the file is not corrupted and try again.");
         } finally {
             setIsParsing(false);
             e.target.value = '';
@@ -118,9 +138,9 @@ const JobEditorModal = ({ onClose, jobToEdit }: { onClose: () => void, jobToEdit
         }
         
         if (isEditMode) {
-            updateJob(jobToEdit.id, jobData);
+            updateJob(jobToEdit.id, { ...jobData, attachments, newAttachments });
         } else {
-            createJob(jobData);
+            createJob({ ...jobData, newAttachments });
         }
         onClose();
     };
@@ -138,14 +158,20 @@ const JobEditorModal = ({ onClose, jobToEdit }: { onClose: () => void, jobToEdit
                 
                 <div className="mb-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
                     <label htmlFor="jd-upload" className="block text-sm font-bold text-slate-700">Auto-fill with AI</label>
-                    <p className="text-xs text-slate-500 mb-2">Upload a job description file (.txt, .md) to let Gemini parse it for you.</p>
-                    <input id="jd-upload" type="file" onChange={handleJdUpload} accept=".txt,.md" className={`${inputStyle} file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-primary/20 file:text-primary hover:file:bg-primary/30 cursor-pointer`} />
+                    <p className="text-xs text-slate-500 mb-2">Upload a job description file (.pdf, .txt, .md) to let Gemini parse it for you.</p>
+                    <input id="jd-upload" type="file" onChange={handleJdUpload} accept=".pdf,.txt,.md" className={`${inputStyle} file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-primary/20 file:text-primary hover:file:bg-primary/30 cursor-pointer`} />
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
-                    <div>
-                        <label htmlFor="title" className="block text-sm font-medium text-slate-700">Job Title</label>
-                        <input type="text" name="title" id="title" value={jobData.title} onChange={handleChange} className={inputStyle} required />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label htmlFor="title" className="block text-sm font-medium text-slate-700">Job Title</label>
+                            <input type="text" name="title" id="title" value={jobData.title} onChange={handleChange} className={inputStyle} required />
+                        </div>
+                         <div>
+                            <label htmlFor="companyName" className="block text-sm font-medium text-slate-700">Company Name</label>
+                            <input type="text" name="companyName" id="companyName" value={jobData.companyName} onChange={handleChange} className={inputStyle} />
+                        </div>
                     </div>
                     <div>
                         <label htmlFor="description" className="block text-sm font-medium text-slate-700">Description</label>
@@ -168,7 +194,7 @@ const JobEditorModal = ({ onClose, jobToEdit }: { onClose: () => void, jobToEdit
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <label htmlFor="workModel" className="block text-sm font-medium text-slate-700">Work Model</label>
-                            <select name="workModel" id="workModel" value={jobData.workModel} onChange={handleChange} className={inputStyle}>
+                            <select name="workModel" id="workModel" value={jobData.workModel as string} onChange={handleChange} className={inputStyle}>
                                 <option>On-site</option>
                                 <option>Remote</option>
                                 <option>Hybrid</option>
@@ -179,41 +205,49 @@ const JobEditorModal = ({ onClose, jobToEdit }: { onClose: () => void, jobToEdit
                             <input type="date" name="applicationDeadline" id="applicationDeadline" value={jobData.applicationDeadline} onChange={handleChange} className={inputStyle} />
                         </div>
                     </div>
-
-                    <div className="pt-4 space-y-4">
-                        <h4 className="text-md font-bold text-slate-800">Interview Settings</h4>
-                        <div className="relative flex items-start">
-                            <div className="flex h-6 items-center">
-                                <input id="aiInterviewAfterScreening" name="aiInterviewAfterScreening" type="checkbox" checked={jobData.aiInterviewAfterScreening} onChange={handleChange} className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"/>
-                            </div>
-                            <div className="ml-3 text-sm leading-6">
-                                <label htmlFor="aiInterviewAfterScreening" className="font-medium text-slate-900">AI Interview after ATS Screening</label>
-                                <p className="text-slate-500">Automatically invite candidates who pass the minimum ATS score to a live AI video interview.</p>
-                            </div>
+                     <div>
+                        <label className="block text-sm font-medium text-slate-700">Attachments</label>
+                        <p className="text-xs text-slate-500 mb-2">Upload any relevant documents (e.g., detailed JD, company benefits PDF).</p>
+                        <div className="mt-2 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                            {attachments.length === 0 && newAttachments.length === 0 && <p className="text-xs text-slate-500">No documents attached.</p>}
+                            <ul className="space-y-2">
+                                {attachments.map((file, index) => (
+                                    <li key={index} className="flex items-center justify-between text-sm bg-white p-2 rounded border">
+                                        <a href={file.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate">{file.name}</a>
+                                        <button type="button" onClick={() => removeAttachment(index)} className="text-red-500 hover:text-red-700 font-bold ml-2 text-lg leading-none">&times;</button>
+                                    </li>
+                                ))}
+                                {newAttachments.map((file, index) => (
+                                     <li key={index} className="flex items-center justify-between text-sm bg-white p-2 rounded border">
+                                        <span className="truncate">{file.name}</span>
+                                        <button type="button" onClick={() => removeNewAttachment(index)} className="text-red-500 hover:text-red-700 font-bold ml-2 text-lg leading-none">&times;</button>
+                                    </li>
+                                ))}
+                            </ul>
                         </div>
-                         <div className="relative flex items-start">
-                            <div className="flex h-6 items-center">
-                                <input id="requireSelfVideo" name="requireSelfVideo" type="checkbox" checked={jobData.requireSelfVideo} onChange={handleChange} className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"/>
-                            </div>
-                            <div className="ml-3 text-sm leading-6">
-                                <label htmlFor="requireSelfVideo" className="font-medium text-slate-900">Require Self-Video Introduction</label>
-                                <p className="text-slate-500">Candidates must submit a short video answering a pre-set question as part of their initial application.</p>
-                            </div>
+                        <div className="mt-2">
+                            <label htmlFor="attachment-upload" className={`${inputStyle} file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-primary/20 file:text-primary hover:file:bg-primary/30 cursor-pointer flex items-center`}>
+                                 <svg className="w-4 h-4 mr-2 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                                Add Files...
+                            </label>
+                             <input id="attachment-upload" type="file" multiple onChange={handleAttachmentUpload} className="hidden" />
                         </div>
-                        {jobData.requireSelfVideo && (
-                            <div className="pl-9 mt-2 animate-fade-in-down">
-                                <label htmlFor="selfVideoQuestion" className="block text-sm font-medium text-slate-700">Video Introduction Question</label>
-                                <input 
-                                    type="text" 
-                                    name="selfVideoQuestion" 
-                                    id="selfVideoQuestion" 
-                                    value={jobData.selfVideoQuestion} 
-                                    onChange={handleChange} 
-                                    className={inputStyle} 
-                                    placeholder="e.g., What makes you a good fit for this role?"
-                                />
-                            </div>
-                        )}
+                    </div>
+                     <div className="p-4 mt-4 bg-slate-50 border border-slate-200 rounded-lg">
+                        <div className="flex items-center">
+                           <input
+                                type="checkbox"
+                                name="isVideoIntroRequired"
+                                id="isVideoIntroRequired"
+                                checked={jobData.isVideoIntroRequired}
+                                onChange={handleChange}
+                                className="h-4 w-4 text-primary focus:ring-primary border-slate-300 rounded"
+                            />
+                            <label htmlFor="isVideoIntroRequired" className="ml-3 block text-sm font-medium text-slate-700">
+                                Require self-introduction video from candidates
+                            </label>
+                        </div>
+                         <p className="text-xs text-slate-500 mt-2 ml-7">If checked, AI video analysis will run automatically after the job is closed.</p>
                     </div>
 
                     <div className="flex justify-end space-x-4 pt-4">
@@ -254,49 +288,43 @@ const ResumeDetailModal = ({ candidate, onClose }: ResumeDetailModalProps) => {
                     <h3 className="text-2xl font-bold text-slate-900 mb-4">Resume: {candidate.name}</h3>
                 </div>
                 <div className="flex-grow overflow-y-auto pr-4 -mr-4">
-                    {/* FIX: Pass children as an explicit prop to work around potential JSX parsing or type inference issues. */}
-                    <Section title="Professional Summary" children={
+                    <Section title="Professional Summary">
                         <p className="text-slate-700 leading-relaxed">{candidate.summary}</p>
-                    } />
+                    </Section>
                     
-                    {/* FIX: Pass children as an explicit prop to work around potential JSX parsing or type inference issues. */}
-                    <Section title="Skills" children={
+                    <Section title="Skills">
                         <div className="flex flex-wrap gap-2">
                             {(candidate.skills || []).map(skill => <span key={skill} className="px-3 py-1 rounded-full text-sm font-semibold bg-primary/10 text-primary-dark">{skill}</span>)}
                         </div>
-                    } />
+                    </Section>
                     
                     {(candidate.projects || []).length > 0 && (
-                        // FIX: Pass children as an explicit prop to work around potential JSX parsing or type inference issues.
-                        <Section title="Key Projects" children={
+                        <Section title="Key Projects">
                             <ul className="list-disc list-inside space-y-2 text-slate-700">
                                 {candidate.projects!.map((p, i) => <li key={i}>{p}</li>)}
                             </ul>
-                        } />
+                        </Section>
                     )}
 
                     {(candidate.publications || []).length > 0 && (
-                        // FIX: Pass children as an explicit prop to work around potential JSX parsing or type inference issues.
-                        <Section title="Publications" children={
+                        <Section title="Publications">
                             <ul className="list-disc list-inside space-y-2 text-slate-700">
                                 {candidate.publications!.map((p, i) => <li key={i}>{p}</li>)}
                             </ul>
-                        } />
+                        </Section>
                     )}
 
                     {(candidate.certifications || []).length > 0 && (
-                        // FIX: Pass children as an explicit prop to work around potential JSX parsing or type inference issues.
-                        <Section title="Certifications" children={
+                        <Section title="Certifications">
                             <ul className="list-disc list-inside space-y-2 text-slate-700">
                                 {candidate.certifications!.map((c, i) => <li key={i}>{c}</li>)}
                             </ul>
-                        } />
+                        </Section>
                     )}
                     
-                    {/* FIX: Pass children as an explicit prop to work around potential JSX parsing or type inference issues. */}
-                     <Section title="Full Resume Text" defaultOpen={false} children={
+                     <Section title="Full Resume Text" defaultOpen={false}>
                         <pre className="whitespace-pre-wrap font-sans text-sm text-slate-700 bg-slate-50 p-4 rounded-lg border">{candidate.resumeText}</pre>
-                    } />
+                    </Section>
                 </div>
 
                 <div className="text-right mt-6 flex-shrink-0">
@@ -308,20 +336,19 @@ const ResumeDetailModal = ({ candidate, onClose }: ResumeDetailModalProps) => {
 }
 
 interface CandidateRowProps {
+    job: Job;
     candidate: Candidate;
     application: Application;
-    onRequestStatusChange: (status: ApplicationStatus) => void | Promise<void>;
-    runVideoAnalysisAgent: (applicationId: string) => void;
-    analyzingVideoAppId: string | null;
 }
 
-const CandidateRow = ({ candidate, application, onRequestStatusChange, runVideoAnalysisAgent, analyzingVideoAppId }: CandidateRowProps) => {
+const CandidateRow = ({ job, candidate, application }: CandidateRowProps) => {
+    const { runVideoAnalysisAgent, analyzingVideoAppIds, updateApplicationStatus, updatingStatusAppIds } = useSmartHire();
     const [isExpanded, setIsExpanded] = useState(false);
     const [showResume, setShowResume] = useState(false);
-    const [showVideo, setShowVideo] = useState(false);
+    const [showSelfIntro, setShowSelfIntro] = useState(false);
     const applicationDate = new Date(candidate.appliedAt).toLocaleDateString();
-
-    const isAnalyzing = analyzingVideoAppId === application.id;
+    const isAnalyzing = analyzingVideoAppIds.has(application.id);
+    const isUpdating = updatingStatusAppIds.has(application.id);
 
     const getScoreColor = (score: number) => {
         if (score >= 80) return 'text-primary';
@@ -383,14 +410,14 @@ const CandidateRow = ({ candidate, application, onRequestStatusChange, runVideoA
             {showResume && (
                 <ResumeDetailModal candidate={candidate} onClose={() => setShowResume(false)} />
             )}
-
-            {showVideo && application.videoInterviewUrl && (
-                 <div className="fixed inset-0 bg-slate-900 bg-opacity-75 flex items-center justify-center z-[60] p-4" onClick={() => setShowVideo(false)}>
+            
+            {showSelfIntro && application.selfIntroVideoUrl && (
+                 <div className="fixed inset-0 bg-slate-900 bg-opacity-75 flex items-center justify-center z-[60] p-4" onClick={() => setShowSelfIntro(false)}>
                     <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-3xl" onClick={e => e.stopPropagation()}>
-                        <h3 className="text-2xl font-bold text-slate-900 mb-4">AI Interview: {candidate.name}</h3>
-                        <video src={application.videoInterviewUrl} controls autoPlay className="w-full rounded-lg bg-slate-900"></video>
+                        <h3 className="text-2xl font-bold text-slate-900 mb-4">Self-Introduction: {candidate.name}</h3>
+                        <video src={application.selfIntroVideoUrl} controls autoPlay className="w-full rounded-lg bg-slate-900"></video>
                         <div className="text-right mt-6">
-                            <button onClick={() => setShowVideo(false)} className={buttonSecondary}>Close</button>
+                            <button onClick={() => setShowSelfIntro(false)} className={buttonSecondary}>Close</button>
                         </div>
                     </div>
                 </div>
@@ -415,7 +442,7 @@ const CandidateRow = ({ candidate, application, onRequestStatusChange, runVideoA
                         </div>
                         {application.interviewScore !== undefined && (
                             <div className="text-center">
-                                <p className="text-xs text-slate-500 font-semibold uppercase mb-1">Interview</p>
+                                <p className="text-xs text-slate-500 font-semibold uppercase mb-1">Video Score</p>
                                 <ScoreDonut score={application.interviewScore} />
                             </div>
                         )}
@@ -448,9 +475,9 @@ const CandidateRow = ({ candidate, application, onRequestStatusChange, runVideoA
                                 </div>
                             </div>
 
-                            {application.interviewScore !== undefined && (
+                            {application.interviewScore !== undefined ? (
                                 <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-200">
-                                    <h4 className="font-bold text-indigo-900 mb-2">AI Interview Analysis</h4>
+                                    <h4 className="font-bold text-indigo-900 mb-2">AI Video Analysis</h4>
                                     <p className="text-sm text-indigo-800 my-2 italic">"{application.aiEvaluationSummary}"</p>
                                     
                                     {application.skillBreakdown && <SkillBreakdownDisplay skills={application.skillBreakdown} title="Technical Skill Breakdown" />}
@@ -460,55 +487,52 @@ const CandidateRow = ({ candidate, application, onRequestStatusChange, runVideoA
                                          <p className="text-sm font-medium text-indigo-900">AI Recommendation: <span className="font-bold">{application.recommendation}</span></p>
                                     </div>
                                 </div>
-                            )}
+                            ) : application.selfIntroVideoUrl ? (
+                                <div className="p-4 bg-slate-50 rounded-lg border flex items-center justify-center text-center">
+                                    <div>
+                                        <h4 className="font-bold text-slate-800 mb-2">Video Analysis Pending</h4>
+                                        <p className="text-sm text-slate-600">
+                                            {isAnalyzing 
+                                                ? 'AI analysis is in progress...' 
+                                                : 'AI analysis will run automatically when this job posting is closed.'
+                                            }
+                                        </p>
+                                        {isAnalyzing && <div className="mt-4 animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto"></div>}
+                                    </div>
+                                </div>
+                            ) : null}
                         </div>
 
                          <div className="mt-4 pt-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
                             <div className="flex flex-wrap gap-2">
                                 <button onClick={() => setShowResume(true)} className={buttonSecondary}>View Full Resume</button>
-                                {application.videoInterviewUrl && (
-                                    <button onClick={() => setShowVideo(true)} className="bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-700 transition-colors flex items-center space-x-2">
-                                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 001.553.832l3-2a1 1 0 000-1.664l-3-2z"></path></svg>
-                                        <span>Watch Interview</span>
-                                    </button>
-                                )}
-                                {application.videoInterviewUrl && application.interviewScore === undefined && (
-                                    <button 
-                                        onClick={() => runVideoAnalysisAgent(application.id)} 
-                                        className="bg-primary text-white font-bold py-2 px-4 rounded-lg hover:bg-primary-dark transition-colors flex items-center space-x-2 disabled:bg-slate-300"
-                                        disabled={isAnalyzing}
-                                    >
-                                        {isAnalyzing ? (
-                                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                                        ) : (
-                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547a2 2 0 00-.547 1.806l.477 2.387a6 6 0 00.517 3.86l.158.318a6 6 0 01.517 3.86l-.477 2.387a2 2 0 00.547 1.806a2 2 0 001.806.547l2.387-.477a6 6 0 003.86-.517l.318-.158a6 6 0 013.86-.517l2.387.477a2 2 0 001.806-.547a2 2 0 00.547-1.806l-.477-2.387a6 6 0 00-.517-3.86l-.158-.318a6 6 0 01-.517-3.86l.477-2.387a2 2 0 00-.547-1.806zM12 15a3 3 0 100-6 3 3 0 000 6z" transform="translate(-2 -3)"/></svg>
-                                        )}
-                                        <span>{isAnalyzing ? 'Analyzing...' : 'Analyze with AI Agent'}</span>
-                                    </button>
-                                )}
-                                {application.status !== 'Rejected' && application.status !== 'Hired' && (
-                                    <button 
-                                        onClick={() => onRequestStatusChange('Rejected')} 
-                                        className="bg-red-100 text-red-800 font-bold py-2 px-4 rounded-lg hover:bg-red-200 transition-colors flex items-center space-x-2"
-                                    >
-                                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd"></path></svg>
-                                        <span>Reject Candidate</span>
+                                {application.selfIntroVideoUrl && (
+                                    <button onClick={() => setShowSelfIntro(true)} className="bg-amber-100 text-amber-800 font-bold py-2 px-4 rounded-lg hover:bg-amber-200 transition-colors flex items-center space-x-2">
+                                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.25 12.25a.75.75 0 101.5 0v-4.5a.75.75 0 10-1.5 0v4.5zM10 6a.75.75 0 110-1.5.75.75 0 010 1.5z" clipRule="evenodd"></path></svg>
+                                        <span>Watch Self-Intro</span>
                                     </button>
                                 )}
                             </div>
                             <div className="flex items-center space-x-2">
+                                {isUpdating && <div title="Updating status..." className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary"></div>}
                                 <label htmlFor={`status-${candidate.id}`} className="text-sm font-medium text-slate-700">Update Status:</label>
                                 <select
                                     id={`status-${candidate.id}`}
                                     value={application.status}
-                                    onChange={async (e) => await onRequestStatusChange(e.target.value as ApplicationStatus)}
-                                    className="px-2 py-1 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary text-sm bg-white cursor-pointer"
+                                    onChange={(e) => {
+                                        const newStatus = e.target.value as ApplicationStatus;
+                                        if (application.status !== newStatus) {
+                                            updateApplicationStatus(application.id, newStatus);
+                                        }
+                                    }}
+                                    disabled={isUpdating}
+                                    className="px-2 py-1 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary text-sm bg-white cursor-pointer disabled:bg-slate-100"
                                     title="Change candidate status and send email notification."
                                 >
                                     <option>Under Review</option>
                                     <option>Interviewing</option>
-                                    <option>Rejected</option>
                                     <option>Hired</option>
+                                    <option>Rejected</option>
                                 </select>
                             </div>
                         </div>
@@ -516,57 +540,6 @@ const CandidateRow = ({ candidate, application, onRequestStatusChange, runVideoA
                 )}
             </div>
         </>
-    );
-};
-
-interface AgentProcessingModalProps {
-    jobTitle: string;
-    onClose: () => void;
-}
-const AgentProcessingModal = ({ jobTitle, onClose }: AgentProcessingModalProps) => {
-    const { processingAgentLogs, loading, error } = useSmartHire();
-    const logsEndRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [processingAgentLogs]);
-
-    const isFinished = !loading;
-
-    return (
-        <div className="fixed inset-0 bg-slate-900 bg-opacity-75 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-2xl border-2 border-primary/20" onClick={e => e.stopPropagation()}>
-                <div className="flex items-center space-x-3 mb-4">
-                    {!isFinished ? (
-                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                    ) : (
-                         <div className={`w-8 h-8 rounded-full flex items-center justify-center ${error ? 'bg-red-100 text-red-600' : 'bg-primary/10 text-primary'}`}>
-                            {error ? '❌' : '✅'}
-                         </div>
-                    )}
-                    <div>
-                         <h3 className="text-2xl font-bold text-slate-900">SmartHire Agent is Processing</h3>
-                         <p className="text-slate-600">Job: {jobTitle}</p>
-                    </div>
-                </div>
-
-                <div className="bg-slate-900 text-white font-mono text-xs rounded-lg p-4 h-64 overflow-y-auto my-6">
-                    {processingAgentLogs.map((log, index) => (
-                        <p key={index} className="whitespace-pre-wrap animate-fade-in-down" style={{animationDelay: `${index * 50}ms`}}>&gt; {log}</p>
-                    ))}
-                    <div ref={logsEndRef} />
-                </div>
-                
-                {isFinished && (
-                     <div className="text-center">
-                        <p className={`font-semibold mb-4 ${error ? 'text-red-600' : 'text-slate-800'}`}>
-                            {error ? `Agent stopped due to an error.` : `Agent has completed its task successfully.`}
-                        </p>
-                        <button onClick={onClose} className={buttonPrimary}>Close</button>
-                    </div>
-                )}
-            </div>
-        </div>
     );
 };
 
@@ -638,13 +611,11 @@ const JobQnA = ({ job }: { job: Job }) => {
 
 const JobDetail = ({ job, onBack }: { job: Job; onBack: () => void }) => {
     type SortByType = 'score' | 'name' | 'date';
-    const { getCandidatesForJob, getApplicationForCandidate, updateApplicationStatus, processApplicationsAgent, exportCandidates, loading, updateJobCriteria, clearProcessingAgentLogs, logEmail, closeJob, runVideoAnalysisAgent, analyzingVideoAppId } = useSmartHire();
+    const { getCandidatesForJob, getApplicationForCandidate, exportCandidates, updateJobCriteria, closeJob } = useSmartHire();
     const candidates = getCandidatesForJob(job.id);
     
-    const [isAgentModalOpen, setIsAgentModalOpen] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const [isCloseConfirmOpen, setIsCloseConfirmOpen] = useState(false);
-    const [emailModalState, setEmailModalState] = useState<{ candidate: Candidate; job: Job; status: ApplicationStatus } | null>(null);
     const [candidateSearch, setCandidateSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState('All');
     const [sortBy, setSortBy] = useState<SortByType>('score');
@@ -678,70 +649,19 @@ const JobDetail = ({ job, onBack }: { job: Job; onBack: () => void }) => {
         updateJobCriteria(job.id, criteria);
         alert('Criteria updated!');
     };
-    
-    const handleProcessApplications = async () => {
-        clearProcessingAgentLogs();
-        setIsAgentModalOpen(true);
-        await processApplicationsAgent(job.id);
-    };
-
-    const handleSendEmail = (subject: string, body: string) => {
-        if (!emailModalState) return;
-        const { candidate, status } = emailModalState;
-        const app = getApplicationForCandidate(candidate.id);
-
-        if (app) {
-            updateApplicationStatus(app.id, status);
-            logEmail({
-                userId: candidate.userId,
-                candidateId: candidate.id,
-                jobTitle: job.title,
-                subject,
-                body,
-            });
-        }
-        setEmailModalState(null);
-    };
 
     const handleCloseJob = () => {
         setIsCloseConfirmOpen(true);
     };
 
-    const deadlinePassed = job.applicationDeadline && new Date(job.applicationDeadline) < new Date();
-    let processButtonText = 'Processing enabled after deadline';
-    let isProcessButtonDisabled = true;
-
-    if (job.processingStatus === 'Completed') {
-        processButtonText = 'Processing Complete';
-        isProcessButtonDisabled = true;
-    } else if (deadlinePassed) {
-        processButtonText = 'Finalize & Send Emails';
-        isProcessButtonDisabled = loading;
-    }
-
     return (
         <Fragment>
-            {emailModalState && (
-                <EmailComposeModal
-                    candidate={emailModalState.candidate}
-                    job={emailModalState.job}
-                    status={emailModalState.status}
-                    onClose={() => setEmailModalState(null)}
-                    onSend={handleSendEmail}
-                />
-            )}
-            {isAgentModalOpen && (
-                <AgentProcessingModal 
-                    jobTitle={job.title}
-                    onClose={() => setIsAgentModalOpen(false)}
-                />
-            )}
             {isEditing && <JobEditorModal jobToEdit={job} onClose={() => setIsEditing(false)} />}
             {isCloseConfirmOpen && (
                 <div className="fixed inset-0 bg-slate-900 bg-opacity-75 flex items-center justify-center z-50 p-4" onClick={() => setIsCloseConfirmOpen(false)}>
                     <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-md text-center" onClick={e => e.stopPropagation()}>
                         <h3 className="text-xl font-bold text-slate-900 mb-2">Are you sure?</h3>
-                        <p className="text-slate-600 mb-6">Are you sure you want to close the "{job.title}" job posting? This will prevent new applications but won't affect existing candidates.</p>
+                        <p className="text-slate-600 mb-6">Closing "{job.title}" will prevent new applications and automatically trigger AI video analysis for submitted videos. This cannot be undone.</p>
                         <div className="flex justify-center space-x-4">
                             <button onClick={() => setIsCloseConfirmOpen(false)} className={buttonSecondary}>
                                 Cancel
@@ -760,14 +680,15 @@ const JobDetail = ({ job, onBack }: { job: Job; onBack: () => void }) => {
                 </div>
             )}
             <div className="mb-6">
-                <button onClick={onBack} className="flex items-center text-sm font-semibold text-primary hover:underline">
-                     <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
+                <button onClick={onBack} className="flex items-center text-lg font-semibold text-primary hover:text-primary-dark transition-colors">
+                     <svg className="w-6 h-6 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
                     Back to All Jobs
                 </button>
                 <div className="flex justify-between items-start mt-2">
                     <div>
                         <h3 className="text-2xl font-bold text-slate-900">{job.title}</h3>
-                        <p className={`text-sm font-bold ${job.status === 'Open' ? 'text-primary' : 'text-slate-500'}`}>{job.status}</p>
+                        <p className="text-slate-600 font-semibold">{job.companyName}</p>
+                        <p className={`text-sm font-bold mt-1 ${job.status === 'Open' ? 'text-primary' : 'text-slate-500'}`}>{job.status}</p>
                     </div>
                     <div className="flex items-center space-x-2">
                         <button onClick={() => setIsEditing(true)} className={buttonSecondary}>Edit Job</button>
@@ -792,7 +713,7 @@ const JobDetail = ({ job, onBack }: { job: Job; onBack: () => void }) => {
                             <div className="flex-grow relative">
                                 <label htmlFor="candidate-search" className="sr-only">Search Candidates</label>
                                 <input id="candidate-search" type="text" placeholder="Search by name..." value={candidateSearch} onChange={e => setCandidateSearch(e.target.value)} className={inputStyle} />
-                                <svg className="w-5 h-5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                                <svg className="w-5 h-5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                             </div>
                             <div className="flex-shrink-0">
                                 <label htmlFor="status-filter" className="sr-only">Filter by Status</label>
@@ -818,24 +739,11 @@ const JobDetail = ({ job, onBack }: { job: Job; onBack: () => void }) => {
                                 {sortedAndFilteredCandidates.map(candidate => {
                                     const app = getApplicationForCandidate(candidate.id);
                                     if (!app) return null;
-                                    {/* FIX: Wrap CandidateRow in a Fragment with a key to resolve the TypeScript error about the key prop. */}
                                     return <Fragment key={candidate.id}>
                                         <CandidateRow
+                                        job={job}
                                         candidate={candidate}
                                         application={app}
-                                        analyzingVideoAppId={analyzingVideoAppId}
-                                        runVideoAnalysisAgent={runVideoAnalysisAgent}
-                                        onRequestStatusChange={async (newStatus) => {
-                                            if (app && app.status !== newStatus) {
-                                                if (newStatus === 'Hired') {
-                                                    if (window.confirm(`Are you sure you want to mark ${candidate.name} as Hired? An offer email will be automatically generated and logged.`)) {
-                                                        await updateApplicationStatus(app.id, newStatus);
-                                                    }
-                                                } else {
-                                                    setEmailModalState({ candidate, job, status: newStatus });
-                                                }
-                                            }
-                                        }}
                                     />
                                     </Fragment>;
                                 })}
@@ -850,7 +758,29 @@ const JobDetail = ({ job, onBack }: { job: Job; onBack: () => void }) => {
                 </div>
                  <div className="lg:col-span-1 space-y-6">
                     <div className="bg-white p-6 rounded-xl shadow-card border border-slate-200">
-                        <h4 className="text-xl font-bold text-slate-900 mb-4">Automation & Export</h4>
+                        <h4 className="text-xl font-bold text-slate-900 mb-4">Job Details & Attachments</h4>
+                        {job.attachments && job.attachments.length > 0 && (
+                            <div className="mb-6">
+                                <h5 className="text-sm font-medium text-slate-700 mb-2">Attachments</h5>
+                                <ul className="space-y-2">
+                                    {job.attachments.map((file, index) => (
+                                        <li key={index}>
+                                            <a 
+                                                href={file.url} 
+                                                target="_blank" 
+                                                rel="noopener noreferrer" 
+                                                className="flex items-center text-sm p-2 bg-slate-50 hover:bg-slate-100 rounded-lg border border-slate-200"
+                                            >
+                                                <svg className="w-5 h-5 text-slate-500 mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
+                                                <span className="text-primary hover:underline truncate">{file.name}</span>
+                                            </a>
+                                        </li>
+                                    ))}
+                                </ul>
+                                <div className="border-t border-slate-200 my-6"></div>
+                            </div>
+                        )}
+                        <h5 className="text-sm font-medium text-slate-700 mb-2">Automation & Export</h5>
                         <form onSubmit={handleCriteriaUpdate} className="space-y-4">
                             <div>
                                 <label htmlFor="minAtsScore" className="block text-sm font-medium text-slate-700">Minimum ATS Score</label>
@@ -863,13 +793,6 @@ const JobDetail = ({ job, onBack }: { job: Job; onBack: () => void }) => {
                             <button type="submit" className={buttonSecondary + " w-full"}>Update Criteria</button>
                         </form>
                         <div className="border-t border-slate-200 my-6"></div>
-                        <button 
-                            onClick={handleProcessApplications}
-                            disabled={isProcessButtonDisabled}
-                            className={buttonPrimary + " w-full mb-2"}
-                        >
-                            {loading && !isProcessButtonDisabled ? 'Agent is Working...' : processButtonText}
-                        </button>
                         <button 
                             onClick={() => exportCandidates(job.id)}
                             className={buttonSecondary + " w-full"}
@@ -886,27 +809,19 @@ const JobDetail = ({ job, onBack }: { job: Job; onBack: () => void }) => {
 const JobRow = ({ job, onSelect }: { job: Job; onSelect: () => void; }) => {
     const { getCandidatesForJob } = useSmartHire();
     const candidateCount = getCandidatesForJob(job.id).length;
-    const deadlinePassed = job.applicationDeadline && new Date(job.applicationDeadline) < new Date();
-    const actionRequired = deadlinePassed && job.processingStatus !== 'Completed' && job.status === 'Open';
 
     return (
         <div onClick={onSelect} className="p-4 border border-slate-200 rounded-lg flex justify-between items-center cursor-pointer hover:bg-slate-50 hover:shadow-sm transition-all">
             <div>
                 <p className="font-bold text-primary">{job.title}</p>
-                <p className="text-sm text-slate-500">{job.location || 'Remote'}</p>
+                <p className="text-sm text-slate-600 font-semibold">{job.companyName}</p>
+                <p className="text-sm text-slate-500 mt-1">{job.location || 'Remote'}</p>
             </div>
             <div className="flex items-center space-x-6 text-sm">
                 <div className="text-center">
                     <p className="font-semibold text-slate-700">{candidateCount}</p>
                     <p className="text-slate-500">Candidates</p>
                 </div>
-                 {actionRequired && (
-                    <div className="text-center hidden md:block">
-                        <span className="px-3 py-1 text-xs font-semibold rounded-full bg-amber-100 text-amber-800 animate-pulse">
-                            Action Required
-                        </span>
-                    </div>
-                )}
                 <div className="text-center">
                     <span className={`px-3 py-1 text-xs font-semibold rounded-full ${job.status === 'Open' ? 'bg-primary/20 text-primary-dark' : 'bg-slate-100 text-slate-600'}`}>
                         {job.status}
@@ -950,7 +865,7 @@ const JobList = ({ jobs, onSelectJob, onCreateJob }: JobListProps) => {
             <div className="flex flex-col sm:flex-row gap-4 mb-4">
                 <div className="relative flex-grow">
                     <input type="text" placeholder="Search jobs by title..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className={inputStyle} />
-                    <svg className="w-5 h-5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                    <svg className="w-5 h-5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                 </div>
                 <div className="flex-shrink-0">
                     <label htmlFor="hr-status-filter" className="sr-only">Filter by Status</label>
@@ -1053,7 +968,7 @@ const MasterAgentView = () => {
     return (
          <div className="bg-white p-6 rounded-xl shadow-card border border-slate-200">
              <div className="flex items-center space-x-3 mb-4">
-                 <svg className="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547a2 2 0 00-.547 1.806l.477 2.387a6 6 0 00.517 3.86l.158.318a6 6 0 01.517 3.86l-.477 2.387a2 2 0 00.547 1.806a2 2 0 001.806.547l2.387-.477a6 6 0 003.86-.517l.318-.158a6 6 0 013.86-.517l2.387.477a2 2 0 001.806-.547a2 2 0 00.547-1.806l-.477-2.387a6 6 0 00-.517-3.86l-.158-.318a6 6 0 01-.517-3.86l.477-2.387a2 2 0 00-.547-1.806zM12 15a3 3 0 100-6 3 3 0 000 6z" transform="translate(-2 -3)" /></svg>
+                 <svg className="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547a2 2 0 00-.547 1.806l.477 2.387a6 6 0 00.517 3.86l.158.318a6 6 0 01.517 3.86l-.477 2.387a2 2 0 00.547 1.806a2 2 0 001.806.547l2.387-.477a6 6 0 003.86-.517l.318-.158a6 6 0 013.86-.517l2.387.477a2 2 0 001.806-.547a2 2 0 00.547-1.806l-.477-2.387a6 6 0 00-.517-3.86l-.158-.318a6 6 0 01-.517-3.86l.477-2.387a2 2 0 00-.547-1.806zM12 15a3 3 0 100-6 3 3 0 000 6z" transform="translate(-2 -3)"></path></svg>
                  <h3 className="text-xl font-bold text-slate-900">Master Agent Log</h3>
             </div>
             <p className="text-sm text-slate-600 mb-4">The Master Agent is an autonomous supervisor that ensures critical tasks are completed. It periodically checks for jobs with deadlines that have passed by more than two days and automatically processes them if the HR manager hasn't. This log provides a transparent view of its background activities.</p>
@@ -1070,7 +985,7 @@ const MasterAgentView = () => {
 };
 
 const HRDashboard = () => {
-    type Tab = 'postings' | 'calendar' | 'notifications' | 'strategic_agent' | 'master_agent';
+    type Tab = 'postings' | 'calendar' | 'notifications' | 'video_agent' | 'strategic_agent' | 'master_agent';
     const { jobs, selectedJob, selectJob, getEmailsForCurrentUser } = useSmartHire();
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<Tab>('postings');
@@ -1081,46 +996,57 @@ const HRDashboard = () => {
         return <JobDetail job={selectedJob} onBack={() => selectJob(null)} />;
     }
 
-    const getTabClass = (tabId: Tab) => `px-3 py-2 rounded-md font-semibold transition-colors text-sm flex items-center space-x-2 ${activeTab === tabId ? 'bg-primary text-white shadow' : 'text-slate-600 hover:bg-slate-100'}`;
+    const getTabClass = (tabId: Tab) => `relative px-3 py-2 rounded-md font-semibold transition-colors text-sm flex items-center space-x-2 ${activeTab === tabId ? 'text-primary' : 'text-slate-600 hover:text-primary'}`;
 
     return (
         <div>
             {isCreateModalOpen && <JobEditorModal onClose={() => setIsCreateModalOpen(false)} />}
             <div className="flex justify-between items-center mb-6">
                 <h2 className="text-3xl font-bold text-slate-900">HR Dashboard</h2>
-                <div className="bg-white p-1.5 rounded-lg shadow-md border border-slate-200">
-                    <div className="flex items-center space-x-1">
+            </div>
+             <div className="border-b border-slate-200 mb-6">
+                <nav className="-mb-px flex space-x-2 sm:space-x-4 overflow-x-auto" aria-label="Tabs">
                         <button onClick={() => setActiveTab('postings')} className={getTabClass('postings')}>
-                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                             <span className="hidden sm:inline">Postings</span>
+                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                             <span>Postings</span>
+                             {activeTab === 'postings' && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t-full"></span>}
                         </button>
                         <button onClick={() => setActiveTab('calendar')} className={getTabClass('calendar')}>
                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                           <span className="hidden sm:inline">Calendar</span>
+                           <span>Calendar</span>
+                            {activeTab === 'calendar' && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t-full"></span>}
                         </button>
                          <button onClick={() => setActiveTab('notifications')} className={getTabClass('notifications')}>
                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
-                           <span className="hidden sm:inline">Notifications</span>
+                           <span>Notifications</span>
                            {notificationsCount > 0 && (
                                <span className="ml-2 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">{notificationsCount}</span>
                            )}
+                           {activeTab === 'notifications' && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t-full"></span>}
+                        </button>
+                        <button onClick={() => setActiveTab('video_agent')} className={getTabClass('video_agent')}>
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                            <span>Video Agent</span>
+                            {activeTab === 'video_agent' && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t-full"></span>}
                         </button>
                          <button onClick={() => setActiveTab('strategic_agent')} className={getTabClass('strategic_agent')}>
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
-                            <span className="hidden sm:inline">Strategic Agent</span>
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+                            <span>Strategic Agent</span>
+                            {activeTab === 'strategic_agent' && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t-full"></span>}
                          </button>
                          <button onClick={() => setActiveTab('master_agent')} className={getTabClass('master_agent')}>
-                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547a2 2 0 00-.547 1.806l.477 2.387a6 6 0 00.517 3.86l.158.318a6 6 0 01.517 3.86l-.477 2.387a2 2 0 00.547 1.806a2 2 0 001.806.547l2.387-.477a6 6 0 003.86-.517l.318-.158a6 6 0 013.86-.517l2.387.477a2 2 0 001.806-.547a2 2 0 00.547-1.806l-.477-2.387a6 6 0 00-.517-3.86l-.158-.318a6 6 0 01-.517-3.86l.477-2.387a2 2 0 00-.547-1.806zM12 15a3 3 0 100-6 3 3 0 000 6z" transform="translate(-2 -3)"/></svg>
-                           <span className="hidden sm:inline">Master Agent</span>
+                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547a2 2 0 00-.547 1.806l.477 2.387a6 6 0 00.517 3.86l.158.318a6 6 0 01.517 3.86l-.477 2.387a2 2 0 00.547 1.806a2 2 0 001.806.547l2.387-.477a6 6 0 003.86-.517l.318-.158a6 6 0 013.86-.517l2.387.477a2 2 0 001.806-.547a2 2 0 00.547-1.806l-.477-2.387a6 6 0 00-.517-3.86l-.158-.318a6 6 0 01-.517-3.86l.477-2.387a2 2 0 00-.547-1.806zM12 15a3 3 0 100-6 3 3 0 000 6z" transform="translate(-2 -3)"></path></svg>
+                           <span>Master Agent</span>
+                           {activeTab === 'master_agent' && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t-full"></span>}
                          </button>
-                    </div>
-                </div>
+                </nav>
             </div>
 
             <div className="animate-fade-in-up">
                 {activeTab === 'postings' && <JobList jobs={jobs} onSelectJob={(id) => selectJob(id)} onCreateJob={() => setIsCreateModalOpen(true)} />}
                 {activeTab === 'calendar' && <CalendarView />}
                 {activeTab === 'notifications' && <HRNotificationsLog />}
+                {activeTab === 'video_agent' && <VideoAnalysisAgentView />}
                 {activeTab === 'strategic_agent' && <StrategicAgentView />}
                 {activeTab === 'master_agent' && <MasterAgentView />}
             </div>

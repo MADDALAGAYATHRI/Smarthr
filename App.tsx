@@ -40,8 +40,9 @@ const AppContent = () => {
 
 const App = () => {
     return (
-        // FIX: Pass children as an explicit prop to work around a potential JSX parsing or type inference issue.
-        <SmartHireProvider children={<AppContent />} />
+        <SmartHireProvider>
+            <AppContent />
+        </SmartHireProvider>
     );
 };
 

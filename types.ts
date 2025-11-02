@@ -1,6 +1,5 @@
 export type UserRole = 'HR' | 'Job Seeker';
 export type UserStatus = 'active' | 'pending_verification';
-export type AuthProvider = 'email' | 'google' | 'microsoft';
 
 export interface User {
   id: string;
@@ -9,13 +8,13 @@ export interface User {
   password?: string; // Optional for social logins
   role: UserRole;
   status?: UserStatus; // Mainly for HR verification
-  provider?: AuthProvider;
 }
 
 export interface Job {
   id: string;
   hrId: string; // The ID of the HR user who created the job
   title: string;
+  companyName?: string;
   description: string;
   roleAndResponsibilities?: string;
   requirements: string;
@@ -28,10 +27,10 @@ export interface Job {
   numberOfPositions?: number;
   minAtsScore?: number;
   workModel?: 'On-site' | 'Remote' | 'Hybrid';
+  attachments?: { name: string; url: string; }[];
+  isVideoIntroRequired?: boolean;
   processingStatus?: 'Pending' | 'Completed';
-  requireSelfVideo?: boolean;
-  selfVideoQuestion?: string;
-  aiInterviewAfterScreening?: boolean;
+  companyLogo?: string;
 }
 
 export interface Candidate {
@@ -73,8 +72,8 @@ export interface Application {
     userId: string;
     candidateId: string;
     status: ApplicationStatus;
-    videoInterviewUrl?: string;
-    interviewTranscript?: string;
+    selfIntroVideoUrl?: string;
+    selfIntroVideoTranscript?: string;
     interviewScore?: number;
     skillBreakdown?: { skill: string; score: number; rationale: string; }[];
     communicationAnalysis?: CommunicationAnalysis;
@@ -131,6 +130,11 @@ export interface JobRecommendation {
 export interface ChatMessage {
   role: 'user' | 'model';
   parts: { text: string }[];
+}
+
+export interface ConversationHistory {
+  timestamp: string;
+  messages: ChatMessage[];
 }
 
 export interface Question {

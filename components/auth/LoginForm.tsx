@@ -1,15 +1,23 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { useSmartHire } from '../../hooks/useSmartHire';
 
 interface LoginFormProps {
     onForgotPassword: () => void;
+    emailFromSignup?: string;
 }
 
-const LoginForm = ({ onForgotPassword }: LoginFormProps) => {
+const LoginForm = ({ onForgotPassword, emailFromSignup }: LoginFormProps) => {
     const { login, error } = useSmartHire();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [rememberMe, setRememberMe] = useState(false);
+
+    useEffect(() => {
+        if (emailFromSignup) {
+            setEmail(emailFromSignup);
+        }
+    }, [emailFromSignup]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();

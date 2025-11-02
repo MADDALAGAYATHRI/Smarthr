@@ -1,8 +1,10 @@
+
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { GoogleGenAI, Type, Chat } from '@google/genai';
-import type { User, Job, Candidate, Application, UserProfile, GeminiScoreResponse, ChatMessage, Question, JobAlertSubscription, EmailLog, JobMatchScore, JobRecommendation, UserRole, ApplicationStatus, CommunicationAnalysis } from '../types';
+import type { User, Job, Candidate, Application, UserProfile, GeminiScoreResponse, ChatMessage, Question, JobAlertSubscription, EmailLog, JobMatchScore, JobRecommendation, UserRole, ApplicationStatus, CommunicationAnalysis, ConversationHistory } from '../types';
 import { MOCK_USERS, MOCK_JOBS, MOCK_CANDIDATES, MOCK_APPLICATIONS, MOCK_PROFILES, MOCK_QUESTIONS } from '../utils/mockData';
 import { FunctionDeclaration } from '@google/genai';
+import { generateCompanyLogo } from '../utils/logoGenerator';
 
 // Helper to simulate network delay
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
@@ -19,7 +21,14 @@ const fileToGenerativePart = async (file: File) => {
   };
 };
 
-// FIX: Defined a strong type for the context value to avoid `any` and enable proper type inference throughout the app.
+const blobToBase64 = (blob: Blob) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(blob);
+    reader.onload = () => resolve((reader.result as string).split(',')[1]);
+    reader.onerror = error => reject(error);
+});
+
+
 interface ISmartHireContext {
     currentUser: User | null;
     users: User[];
@@ -34,21 +43,22 @@ interface ISmartHireContext {
     selectedJob: Job | undefined;
     loading: boolean;
     error: string | null;
-    processingAgentLogs: string[];
     strategicAgentLogs: string[];
     masterAgentLogs: string[];
     emailAgentMessages: ChatMessage[];
+    emailAgentHistory: ConversationHistory[];
     isEmailAgentOpen: boolean;
     appliedJobIds: Set<string>;
     ai: GoogleGenAI | null;
-    analyzingVideoAppId: string | null;
+    analyzingVideoAppIds: Set<string>;
+    updatingStatusAppIds: Set<string>;
     login: (email: string, password_param: string, rememberMe: boolean) => void;
     logout: () => void;
-    signup: (name: string, email: string, password_param: string, role: UserRole) => void;
+    signup: (name: string, email: string, password_param: string, role: UserRole) => Promise<boolean>;
     sendPasswordResetLink: (email: string) => Promise<boolean>;
     selectJob: (id: string | null) => void;
-    createJob: (jobData: Partial<Job>) => Job;
-    updateJob: (jobId: string, updates: Partial<Job>) => boolean;
+    createJob: (jobData: Partial<Job> & { newAttachments?: File[] }) => Job;
+    updateJob: (jobId: string, updates: Partial<Job> & { newAttachments?: File[] }) => boolean;
     closeJob: (jobId: string) => void;
     getCandidatesForJob: (jobId: string) => Candidate[];
     getApplicationForCandidate: (candidateId: string) => Application | undefined;
@@ -67,29 +77,27 @@ interface ISmartHireContext {
     getEmailsForCurrentUser: () => EmailLog[];
     getJobAlertsForCurrentUser: () => JobAlertSubscription | undefined;
     updateJobAlerts: (keywords: string[]) => void;
-    clearProcessingAgentLogs: () => void;
     clearStrategicAgentLogs: () => void;
     requestAgentStop: () => void;
     openEmailAgent: (initialPrompt?: string) => void;
     closeEmailAgent: () => void;
-    saveVideoInterview: (applicationId: string, videoUrl: string, transcript: string) => Promise<void>;
+    clearEmailAgentHistory: () => void;
     parseJobDescription: (file: File) => Promise<Partial<Job>>;
-    uploadResume: (jobId: string, resumeFile: File) => Promise<void>;
+    uploadResume: (jobId: string, resumeFile: File, videoBlob?: Blob) => Promise<void>;
     generateFollowUpEmail: (candidateId: string, jobId: string, status: ApplicationStatus) => Promise<{ subject: string; body: string; }>;
     generateSeekerFollowUpEmail: (jobId: string) => Promise<{ subject: string; body: string; }>;
     optimizeResumeForJob: (jobId: string) => Promise<{ optimizedResume: string; changes: string[]; }>;
     getJobRecommendations: () => Promise<{ recommendations: JobRecommendation[]; scores: JobMatchScore[]; }>;
-    processApplicationsAgent: (jobId: string) => Promise<void>;
     runEmailAgentStream: (prompt: string) => Promise<void>;
     runStrategicHRAgent: (prompt: string) => Promise<void>;
-    runVideoAnalysisAgent: (applicationId: string) => Promise<void>;
+    runVideoAnalysisAgent: (appId: string) => Promise<void>;
+    saveVideoInterview: (appId: string, videoUrl: string, transcript: string) => void;
     clearError?: () => void;
     markEmailsAsReadForCurrentUser?: () => void;
 }
 
 const SmartHireContext = createContext<ISmartHireContext | null>(null);
 
-// FIX: Export the useSmartHire hook to be used in other components. This resolves all module import errors.
 export const useSmartHire = () => {
     const context = useContext(SmartHireContext);
     if (!context) {
@@ -120,13 +128,14 @@ export const SmartHireProvider = ({ children }: { children: React.ReactNode }) =
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [stopAgent, setStopAgent] = useState(false);
-    const [analyzingVideoAppId, setAnalyzingVideoAppId] = useState<string | null>(null);
+    const [analyzingVideoAppIds, setAnalyzingVideoAppIds] = useState<Set<string>>(new Set());
+    const [updatingStatusAppIds, setUpdatingStatusAppIds] = useState<Set<string>>(new Set());
 
     // --- AGENT LOGS ---
-    const [processingAgentLogs, setProcessingAgentLogs] = useState<string[]>([]);
     const [strategicAgentLogs, setStrategicAgentLogs] = useState<string[]>([]);
     const [masterAgentLogs, setMasterAgentLogs] = useState<string[]>([]);
     const [emailAgentMessages, setEmailAgentMessages] = useState<ChatMessage[]>([]);
+    const [emailAgentHistory, setEmailAgentHistory] = useState<ConversationHistory[]>([]);
     const [isEmailAgentOpen, setIsEmailAgentOpen] = useState(false);
     
     useEffect(() => {
@@ -140,7 +149,7 @@ export const SmartHireProvider = ({ children }: { children: React.ReactNode }) =
         }
 
         // Initialize GenAI
-        const apiKey = process.env.API_KEY || (window as any).process?.env?.API_KEY;
+        const apiKey = process.env.API_KEY;
         if (apiKey) {
             const genAI = new GoogleGenAI({ apiKey });
             setAi(genAI);
@@ -207,11 +216,11 @@ export const SmartHireProvider = ({ children }: { children: React.ReactNode }) =
     
     const clearError = () => setError(null);
 
-    const signup = (name: string, email: string, password_param: string, role: UserRole) => {
+    const signup = async (name: string, email: string, password_param: string, role: UserRole): Promise<boolean> => {
         setError(null);
         if (users.some(u => u.email === email)) {
             setError('An account with this email already exists.');
-            return;
+            return false;
         }
         const newUser: User = {
             id: `user-${Date.now()}`,
@@ -221,8 +230,9 @@ export const SmartHireProvider = ({ children }: { children: React.ReactNode }) =
             role,
             status: 'active'
         };
+        await delay(1000);
         setUsers(prev => [...prev, newUser]);
-        setCurrentUser(newUser); // Auto-login after signup
+        return true;
     };
     
     const sendPasswordResetLink = async (email: string) => {
@@ -254,11 +264,20 @@ export const SmartHireProvider = ({ children }: { children: React.ReactNode }) =
 
     // --- DATA MUTATIONS ---
     const selectJob = (id: string | null) => setSelectedJobId(id);
-    const createJob = (jobData: Partial<Job>): Job => {
+    const createJob = (jobData: Partial<Job> & { newAttachments?: File[] }): Job => {
+        const newAttachments = (jobData.newAttachments || []).map(file => ({
+            name: file.name,
+            url: URL.createObjectURL(file)
+        }));
+
+        const companyName = jobData.companyName || 'Company Not Specified';
+
         const newJob: Job = {
             id: `job-${Date.now()}`,
             hrId: currentUser!.id,
             title: jobData.title || 'Untitled Job',
+            companyName: companyName,
+            companyLogo: generateCompanyLogo(companyName),
             description: jobData.description || 'No description provided.',
             requirements: jobData.requirements || 'No requirements specified.',
             location: jobData.location,
@@ -267,29 +286,75 @@ export const SmartHireProvider = ({ children }: { children: React.ReactNode }) =
             applicationDeadline: jobData.applicationDeadline,
             status: 'Open',
             createdAt: new Date().toISOString(),
-            processingStatus: 'Pending',
-            requireSelfVideo: jobData.requireSelfVideo || false,
-            selfVideoQuestion: jobData.selfVideoQuestion || 'Tell us about a challenging project you have worked on and what you learned from it.',
-            aiInterviewAfterScreening: jobData.aiInterviewAfterScreening ?? true,
+            attachments: newAttachments,
+            isVideoIntroRequired: jobData.isVideoIntroRequired,
         };
         setJobs(prev => [newJob, ...prev]);
+
+        // --- NEW LOGIC FOR JOB ALERT NOTIFICATIONS ---
+        const jobText = `${newJob.title} ${newJob.description} ${newJob.requirements}`.toLowerCase();
+        
+        jobAlerts.forEach(alert => {
+            const user = users.find(u => u.id === alert.userId);
+            if (!user || user.role !== 'Job Seeker') return;
+
+            const matchedKeywords = alert.keywords.filter(keyword => 
+                keyword.trim() && jobText.includes(keyword.trim().toLowerCase())
+            );
+
+            if (matchedKeywords.length > 0) {
+                const subject = `New Job Alert: ${newJob.title}`;
+                const body = `Hi ${user.name},\n\nA new job, "${newJob.title}", has been posted that matches your alert for the keyword(s): ${matchedKeywords.join(', ')}.\n\nLog in to SmartHire to view the details and apply!\n\nBest regards,\nThe SmartHire Team`;
+
+                logEmail({
+                    userId: user.id,
+                    jobTitle: newJob.title,
+                    subject,
+                    body,
+                });
+            }
+        });
+        // --- END OF NEW LOGIC ---
+
         return newJob;
     };
 
-    const updateJob = (jobId: string, updates: Partial<Job>): boolean => {
+    const updateJob = (jobId: string, updates: Partial<Job> & { newAttachments?: File[] }): boolean => {
         let success = false;
+        
+        const newAttachments = (updates.newAttachments || []).map(file => ({
+            name: file.name,
+            url: URL.createObjectURL(file)
+        }));
+
         setJobs(prev => {
             const jobIndex = prev.findIndex(j => j.id === jobId && j.hrId === currentUser?.id);
             if (jobIndex !==-1) {
                 success = true;
                 const newJobs = [...prev];
-                const cleanUpdates = Object.entries(updates).reduce((acc, [key, value]) => {
+                const existingJob = newJobs[jobIndex];
+
+                const finalAttachments = [
+                    ...(updates.attachments || existingJob.attachments || []),
+                    ...newAttachments
+                ];
+                
+                // remove newAttachments from updates to avoid double-processing
+                const { newAttachments: _, ...restUpdates } = updates;
+                
+                const cleanUpdates = Object.entries(restUpdates).reduce((acc, [key, value]) => {
                     if (value !== undefined) {
                         (acc as any)[key as keyof Job] = value;
                     }
                     return acc;
                 }, {} as Partial<Job>);
-                newJobs[jobIndex] = { ...newJobs[jobIndex], ...cleanUpdates };
+
+                newJobs[jobIndex] = { ...existingJob, ...cleanUpdates, attachments: finalAttachments };
+                
+                if(updates.companyName && updates.companyName !== existingJob.companyName){
+                    newJobs[jobIndex].companyLogo = generateCompanyLogo(updates.companyName);
+                }
+
                 return newJobs;
             }
             return prev;
@@ -297,43 +362,96 @@ export const SmartHireProvider = ({ children }: { children: React.ReactNode }) =
         return success;
     };
     
+    const runVideoAnalysisAgent = useCallback(async (appId: string) => {
+        setAnalyzingVideoAppIds(prev => new Set(prev).add(appId));
+        setError(null);
+        try {
+            const application = applications.find(a => a.id === appId);
+            if (!application) {
+                throw new Error("Application not found for analysis.");
+            }
+            const job = jobs.find(j => j.id === application.jobId);
+            if (!job) {
+                throw new Error("Job associated with the application not found.");
+            }
+            
+            const transcript = application.selfIntroVideoTranscript || '';
+    
+            const analysisResult = await evaluateVideoTranscript(job, transcript);
+            
+            // Update the application with the new analysis data
+            setApplications(prev => prev.map(app => 
+                app.id === appId ? { ...app, ...analysisResult } : app
+            ));
+    
+        } catch (e) {
+            console.error("Error running video analysis agent:", e);
+            const errorMessage = e instanceof Error ? e.message : "An unknown error occurred during video analysis.";
+            setError(errorMessage);
+        } finally {
+            setAnalyzingVideoAppIds(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(appId);
+                return newSet;
+            });
+        }
+    }, [applications, jobs]);
+
     const closeJob = (jobId: string) => {
         setJobs(prev => prev.map(j => 
             j.id === jobId ? { ...j, status: 'Closed' } : j
         ));
+
+        // Automatically trigger video analysis for all applicable candidates for this job
+        const appsToAnalyze = applications.filter(app => 
+            app.jobId === jobId &&
+            app.selfIntroVideoUrl &&
+            app.interviewScore === undefined
+        );
+
+        if (appsToAnalyze.length > 0) {
+            setMasterAgentLogs(prev => [...prev, `Job "${jobs.find(j=>j.id===jobId)?.title}" closed. Triggering video analysis for ${appsToAnalyze.length} candidate(s).`]);
+            appsToAnalyze.forEach(app => {
+                runVideoAnalysisAgent(app.id); 
+            });
+        }
     };
 
     const updateApplicationStatus = async (appId: string, status: ApplicationStatus) => {
-        const application = applications.find(a => a.id === appId);
-        if (!application) return;
-    
-        const candidate = candidates.find(c => c.id === application.candidateId);
-        const job = jobs.find(j => j.id === application.jobId);
-        if (!candidate || !job) return;
-    
-        // Optimistically update UI
-        setApplications(prev => prev.map(app => app.id === appId ? { ...app, status } : app));
-    
-        if (status === 'Hired') {
-            setLoading(true);
-            setError(null);
-            try {
-                const { subject, body } = await generateFollowUpEmail(candidate.id, job.id, 'Hired');
-                logEmail({
-                    userId: candidate.userId,
-                    candidateId: candidate.id,
-                    jobTitle: job.title,
-                    subject,
-                    body,
-                });
-            } catch (e) {
-                console.error("Failed to auto-generate 'Hired' email:", e);
-                const errorMessage = e instanceof Error ? e.message : "An unknown error occurred.";
-                // Don't revert, as the status change is the primary action. Just notify the user.
-                setError(`Status updated to 'Hired', but failed to generate confirmation email: ${errorMessage}`);
-            } finally {
-                setLoading(false);
-            }
+        setUpdatingStatusAppIds(prev => new Set(prev).add(appId));
+        setError(null);
+        try {
+            const app = applications.find(a => a.id === appId);
+            if (!app) throw new Error("Application not found.");
+
+            const candidate = candidates.find(c => c.id === app.candidateId);
+            const job = jobs.find(j => j.id === app.jobId);
+            if (!candidate || !job) throw new Error("Associated candidate or job not found.");
+
+            const { subject, body } = await generateFollowUpEmail(candidate.id, job.id, status);
+
+            logEmail({
+                userId: candidate.userId,
+                candidateId: candidate.id,
+                jobTitle: job.title,
+                subject,
+                body,
+            });
+
+            await delay(1500); // Simulate network delay for UI feedback
+
+            setApplications(prev => prev.map(a => a.id === appId ? { ...a, status } : a));
+
+        } catch (e) {
+            const errorMessage = e instanceof Error ? e.message : "An unknown error occurred.";
+            setError(`Failed to update status: ${errorMessage}`);
+            throw e; // Re-throw to be caught by UI if needed
+        } finally {
+            setUpdatingStatusAppIds(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(appId);
+                return newSet;
+            });
         }
     };
 
@@ -398,22 +516,22 @@ export const SmartHireProvider = ({ children }: { children: React.ReactNode }) =
         });
     };
     
-    const evaluateInterviewTranscript = async (applicationId: string, transcript: string) => {
+    const evaluateVideoTranscript = async (job: Job, transcript: string) => {
         if (!ai) {
             console.error("AI not initialized for interview evaluation.");
-            return;
+            return null;
         }
 
         if (!transcript || transcript.trim() === '') {
             console.log("Interview transcript is empty. Skipping AI evaluation.");
-            return;
+            return { 
+                interviewScore: 0,
+                aiEvaluationSummary: "The interview recording contained no analyzable speech, so an AI evaluation could not be performed.",
+                recommendation: "Manual Review Required",
+                skillBreakdown: [],
+                communicationAnalysis: undefined,
+            };
         }
-
-        const application = applications.find(a => a.id === applicationId);
-        if (!application) return;
-        
-        const job = jobs.find(j => j.id === application.jobId);
-        if (!job) return;
 
         const prompt = `As an expert HR analyst and communication coach, evaluate the following interview transcript for the position of "${job.title}".
         
@@ -477,22 +595,12 @@ export const SmartHireProvider = ({ children }: { children: React.ReactNode }) =
                     }
                 }
              });
-             const result = JSON.parse(response.text);
+             return JSON.parse(response.text);
 
-             setApplications(prev => prev.map(app =>
-                app.id === applicationId ? { ...app, ...result } : app
-             ));
         } catch(e) {
             console.error("Error evaluating interview transcript:", e);
-            // Optionally, update the application with an error state
+            throw new Error("Failed to get evaluation from AI.");
         }
-    };
-
-
-    const saveVideoInterview = async (applicationId: string, videoUrl: string, transcript: string) => {
-        setApplications(prev => prev.map(app => 
-            app.id === applicationId ? { ...app, videoInterviewUrl: videoUrl, interviewTranscript: transcript } : app
-        ));
     };
 
     const updateUserProfile = async (profileData: Partial<UserProfile>, resumeFile?: File) => {
@@ -575,18 +683,21 @@ export const SmartHireProvider = ({ children }: { children: React.ReactNode }) =
     // --- GEMINI API FUNCTIONS ---
     const parseJobDescription = async (file: File): Promise<Partial<Job>> => {
         if (!ai) throw new Error("GenAI not initialized");
-        const text = await file.text();
+    
+        const filePart = await fileToGenerativePart(file);
+        const prompt = `Parse the following job description document and extract the job title, a comprehensive description, and a detailed list of key requirements. Present the requirements as a single string with each requirement on a new line.`;
+    
         const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: `Parse the following job description and extract the job title, a brief description, and a list of key requirements. \n\n${text}`,
+            model: "gemini-2.5-pro",
+            contents: { parts: [{ text: prompt }, filePart] },
             config: {
                 responseMimeType: "application/json",
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
-                        title: { type: Type.STRING },
-                        description: { type: Type.STRING },
-                        requirements: { type: Type.STRING },
+                        title: { type: Type.STRING, description: "The job title." },
+                        description: { type: Type.STRING, description: "A comprehensive summary of the job." },
+                        requirements: { type: Type.STRING, description: "A list of key requirements, with each on a new line." },
                     }
                 }
             }
@@ -594,7 +705,7 @@ export const SmartHireProvider = ({ children }: { children: React.ReactNode }) =
         return JSON.parse(response.text);
     };
     
-    const uploadResume = async (jobId: string, resumeFile: File) => {
+    const uploadResume = async (jobId: string, resumeFile: File, videoBlob?: Blob) => {
         if(!ai || !currentUser) throw new Error("Not logged in or AI not initialized");
         setLoading(true);
         setError(null);
@@ -602,13 +713,12 @@ export const SmartHireProvider = ({ children }: { children: React.ReactNode }) =
             const job = jobs.find(j => j.id === jobId);
             if(!job) throw new Error("Job not found");
     
+            // --- Resume Processing ---
             const resumePart = await fileToGenerativePart(resumeFile);
-    
-            const prompt = `Analyze this resume against the following job description. Provide a score from 0-100, a brief summary, a general list of skills, lists of strengths and weaknesses for this specific role, key projects, publications, and certifications. Also extract the candidate's full name, their email address, and the full text from the resume.\n\nJob: ${job.title} - ${job.requirements}`;
-    
-            const response = await ai.models.generateContent({
+            const resumePrompt = `Analyze this resume against the following job description. Provide a score from 0-100, a brief summary, a general list of skills, lists of strengths and weaknesses for this specific role, key projects, publications, and certifications. Also extract the candidate's full name, their email address, and the full text from the resume.\n\nJob: ${job.title} - ${job.requirements}`;
+            const resumeResponse = await ai.models.generateContent({
                 model: "gemini-2.5-flash",
-                contents: { parts: [{ text: prompt }, resumePart] },
+                contents: { parts: [{ text: resumePrompt }, resumePart] },
                 config: {
                     responseMimeType: "application/json",
                     responseSchema: {
@@ -629,8 +739,24 @@ export const SmartHireProvider = ({ children }: { children: React.ReactNode }) =
                     }
                 }
             });
-            const result: GeminiScoreResponse & { resumeText: string } = JSON.parse(response.text);
-    
+            const result: GeminiScoreResponse & { resumeText: string } = JSON.parse(resumeResponse.text);
+
+            let transcript: string | undefined;
+            let videoUrl: string | undefined;
+
+            // --- Video Processing ---
+            if (videoBlob) {
+                const videoBase64 = await blobToBase64(videoBlob);
+                const videoPart = { inlineData: { data: videoBase64, mimeType: videoBlob.type } };
+                const transcriptResponse = await ai.models.generateContent({ 
+                    model: 'gemini-2.5-flash', 
+                    contents: { parts: [{ text: "Transcribe the audio from this video." }, videoPart] }
+                });
+                transcript = transcriptResponse.text;
+                videoUrl = URL.createObjectURL(videoBlob);
+            }
+
+            // --- Create Candidate and Application ---
             const newCandidate: Candidate = {
                 id: `cand-${Date.now()}`,
                 jobId,
@@ -648,12 +774,15 @@ export const SmartHireProvider = ({ children }: { children: React.ReactNode }) =
                 publications: result.publications || [],
                 certifications: result.certifications || [],
             };
+
             const newApplication: Application = {
                 id: `app-${Date.now()}`,
                 jobId,
                 userId: currentUser.id,
                 candidateId: newCandidate.id,
                 status: 'Under Review',
+                selfIntroVideoUrl: videoUrl,
+                selfIntroVideoTranscript: transcript,
             };
 
             // If this is the user's first application, create their profile automatically
@@ -688,7 +817,7 @@ export const SmartHireProvider = ({ children }: { children: React.ReactNode }) =
 
         } catch (e) {
             console.error(e);
-            setError("Failed to process resume with AI. Please check the file and try again.");
+            setError("Failed to process application with AI. Please check your files and try again.");
             throw e;
         } finally {
             setLoading(false);
@@ -797,23 +926,78 @@ export const SmartHireProvider = ({ children }: { children: React.ReactNode }) =
     const getJobRecommendations = async (): Promise<{ recommendations: JobRecommendation[], scores: JobMatchScore[] }> => {
         if (!ai) throw new Error("AI not initialized");
         const profile = getUserProfileForCurrentUser();
-        if(!profile) return { recommendations: [], scores: [] };
-        
+        if (!profile || !profile.resumeText) return { recommendations: [], scores: [] };
+
         const openJobs = jobs.filter(j => j.status === 'Open' && !appliedJobIds.has(j.id));
-        // The provided file was truncated here. Returning mock data to ensure app functionality.
-        await delay(500);
-        const scores: JobMatchScore[] = openJobs.map(job => ({ jobId: job.id, matchScore: Math.floor(Math.random() * 40) + 60 }));
-        const recommendations: JobRecommendation[] = scores
-            .sort((a, b) => b.matchScore - a.matchScore)
-            .slice(0, 3)
-            .map(score => ({
-                jobId: score.jobId,
-                reason: "This job is a strong match based on your skills in " + profile.skills.slice(0, 2).join(', ') + "."
-            }));
-        return { recommendations, scores };
+        if (openJobs.length === 0) return { recommendations: [], scores: [] };
+
+        const jobChunks = openJobs.map(job => `Job ID: ${job.id}\nTitle: ${job.title}\nRequirements: ${job.requirements}\n---\n`);
+
+        const prompt = `Based on the following resume, evaluate the user's match for each of the listed jobs. Provide a match score (0-100) for each job. For the top 3 matches, provide a brief, encouraging reason for the match.
+
+        Resume:
+        ${profile.resumeText}
+
+        Jobs:
+        ${jobChunks.join('')}
+
+        Your response MUST be a valid JSON object with two keys: "scores" and "recommendations".
+        - "scores": An array of objects, where each object has "jobId" (string) and "matchScore" (integer). Include a score for every job provided.
+        - "recommendations": An array of objects for ONLY the top 3 jobs. Each object must have "jobId" (string) and "reason" (string).`;
+
+        try {
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: prompt,
+                config: {
+                    responseMimeType: 'application/json',
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            scores: {
+                                type: Type.ARRAY,
+                                items: {
+                                    type: Type.OBJECT,
+                                    properties: {
+                                        jobId: { type: Type.STRING },
+                                        matchScore: { type: Type.INTEGER }
+                                    },
+                                    required: ["jobId", "matchScore"]
+                                }
+                            },
+                            recommendations: {
+                                type: Type.ARRAY,
+                                items: {
+                                    type: Type.OBJECT,
+                                    properties: {
+                                        jobId: { type: Type.STRING },
+                                        reason: { type: Type.STRING }
+                                    },
+                                    required: ["jobId", "reason"]
+                                }
+                            }
+                        },
+                        required: ["scores", "recommendations"]
+                    }
+                }
+            });
+            return JSON.parse(response.text);
+        } catch (e) {
+            console.error("Error getting job recommendations:", e);
+            // Fallback to mock data on error to avoid breaking the UI
+            await delay(500);
+            const scores: JobMatchScore[] = openJobs.map(job => ({ jobId: job.id, matchScore: Math.floor(Math.random() * 40) + 60 }));
+            const recommendations: JobRecommendation[] = scores
+                .sort((a, b) => b.matchScore - a.matchScore)
+                .slice(0, 3)
+                .map(score => ({
+                    jobId: score.jobId,
+                    reason: "This job is a strong match based on your skills in " + (profile.skills?.slice(0, 2).join(', ') || 'your profile') + "."
+                }));
+            return { recommendations, scores };
+        }
     };
 
-    const clearProcessingAgentLogs = () => setProcessingAgentLogs([]);
     const clearStrategicAgentLogs = () => setStrategicAgentLogs([]);
     const requestAgentStop = () => setStopAgent(true);
 
@@ -826,8 +1010,20 @@ export const SmartHireProvider = ({ children }: { children: React.ReactNode }) =
     };
 
     const closeEmailAgent = () => {
+        // Save the conversation to history if it's more than just a single user prompt
+        if (emailAgentMessages.length > 1) {
+            const newHistoryEntry: ConversationHistory = {
+                timestamp: new Date().toISOString(),
+                messages: emailAgentMessages,
+            };
+            setEmailAgentHistory(prev => [newHistoryEntry, ...prev]);
+        }
         setIsEmailAgentOpen(false);
-        setEmailAgentMessages([]); // Clear messages on close
+        setEmailAgentMessages([]); // Clear messages for the next session
+    };
+
+    const clearEmailAgentHistory = () => {
+        setEmailAgentHistory([]);
     };
 
     const runEmailAgentStream = async (prompt: string) => {
@@ -883,8 +1079,6 @@ export const SmartHireProvider = ({ children }: { children: React.ReactNode }) =
                     }
                     
                     // Step 3: Get the final confirmation from the model
-                    // FIX: The `sendMessageStream` method expects a `message` property, not `parts`,
-                    // when sending a tool response.
                     const toolResultStream = await emailAgentChat.sendMessageStream({
                         message: [{ functionResponse: { name: fc.name, response: functionResult } }]
                     });
@@ -925,74 +1119,6 @@ export const SmartHireProvider = ({ children }: { children: React.ReactNode }) =
             setLoading(false);
         }
     };
-    
-    const processApplicationsAgent = async (jobId: string) => {
-        setLoading(true);
-        setProcessingAgentLogs([]);
-        const job = jobs.find(j => j.id === jobId);
-        if (!job) {
-            setProcessingAgentLogs(["Error: Job not found."]);
-            setLoading(false);
-            return;
-        }
-
-        setProcessingAgentLogs(prev => [...prev, `Agent activated for "${job.title}".`]);
-        await delay(500);
-
-        if (job.aiInterviewAfterScreening) {
-            setProcessingAgentLogs(prev => [...prev, "AI Interview post-screening is ENABLED."]);
-            await delay(500);
-
-            const jobCandidates = getCandidatesForJob(job.id);
-            const minScore = job.minAtsScore || 70;
-            setProcessingAgentLogs(prev => [...prev, `Found ${jobCandidates.length} candidates. Minimum ATS score is ${minScore}.`]);
-            await delay(1000);
-
-            let updatedCandidatesCount = 0;
-            const updatedApplications = [...applications];
-
-            setProcessingAgentLogs(prev => [...prev, 'Starting candidate evaluation...']);
-            await delay(500);
-
-            for (const candidate of jobCandidates) {
-                const app = updatedApplications.find(a => a.candidateId === candidate.id);
-                if (!app) {
-                     setProcessingAgentLogs(prev => [...prev, `  - ⚠️ Could not find application for candidate ${candidate.name}. Skipping.`]);
-                     await delay(200);
-                     continue;
-                }
-
-                const scoreCheckPassed = candidate.score >= minScore;
-                const statusCheckPassed = app.status === 'Under Review';
-
-                if (!scoreCheckPassed) {
-                     setProcessingAgentLogs(prev => [...prev, `  - ❌ ${candidate.name} failed check. Comparison: score(${candidate.score}) < minScore(${minScore}).`]);
-                     await delay(200);
-                } else if (!statusCheckPassed) {
-                     setProcessingAgentLogs(prev => [...prev, `  - ⏩ ${candidate.name} skipped. Pre-check: score(${candidate.score}) >= minScore(${minScore}). Reason: Status is '${app.status}', not 'Under Review'.`]);
-                     await delay(200);
-                } else {
-                    // Candidate qualifies and is in the correct state
-                    app.status = 'Interviewing';
-                    updatedCandidatesCount++;
-                    setProcessingAgentLogs(prev => [...prev, `  - ✅ ${candidate.name} PASSED. Check: score(${candidate.score}) >= minScore(${minScore}) and status is 'Under Review'. Action: Status updated to 'Interviewing'.`]);
-                    await delay(200);
-                }
-            }
-
-            setApplications(updatedApplications);
-            setProcessingAgentLogs(prev => [...prev, `Agent updated ${updatedCandidatesCount} candidate(s) to the 'Interviewing' stage.`]);
-            await delay(500);
-
-        } else {
-            setProcessingAgentLogs(prev => [...prev, "AI Interview post-screening is DISABLED. No statuses will be changed."]);
-            await delay(500);
-        }
-        
-        setProcessingAgentLogs(prev => [...prev, "Screening complete."]);
-        setJobs(prev => prev.map(j => j.id === jobId ? { ...j, processingStatus: 'Completed' } : j));
-        setLoading(false);
-    };
 
     const runStrategicHRAgent = async (prompt: string) => {
         setLoading(true);
@@ -1003,31 +1129,24 @@ export const SmartHireProvider = ({ children }: { children: React.ReactNode }) =
         setStrategicAgentLogs(prev => [...prev, `Agent: Task completed successfully.`]);
         setLoading(false);
     };
+    
+    const saveVideoInterview = useCallback((appId: string, videoUrl: string, transcript: string) => {
+        setApplications(prev => prev.map(app => 
+            app.id === appId ? { 
+                ...app, 
+                selfIntroVideoUrl: videoUrl,
+                selfIntroVideoTranscript: transcript,
+            } : app
+        ));
+    }, []);
 
-    const runVideoAnalysisAgent = async (applicationId: string) => {
-        setAnalyzingVideoAppId(applicationId);
-        try {
-            const app = applications.find(a => a.id === applicationId);
-            if (app && app.interviewTranscript) {
-                await delay(2000); // Simulate processing time
-                await evaluateInterviewTranscript(applicationId, app.interviewTranscript);
-            } else {
-                console.error("Application or transcript not found for analysis.");
-            }
-        } catch (e) {
-            console.error("Video analysis agent failed:", e);
-            setError("Failed to analyze the video interview.");
-        } finally {
-            setAnalyzingVideoAppId(null);
-        }
+    // FIX: A malformed return statement was causing a cascade of syntax errors.
+    // Refactored to create the context value object separately for clarity and correctness.
+    // This resolves the errors in this file and the related error in App.tsx.
+    const contextValue: ISmartHireContext = {
+        currentUser, users, jobs, candidates, applications, userProfiles, questions, emailLogs, jobAlerts, savedJobs, selectedJob, loading, error, strategicAgentLogs, masterAgentLogs, emailAgentMessages, emailAgentHistory, isEmailAgentOpen, appliedJobIds, ai, analyzingVideoAppIds, updatingStatusAppIds, login, logout, signup, sendPasswordResetLink, selectJob, createJob, updateJob, closeJob, getCandidatesForJob, getApplicationForCandidate, updateApplicationStatus, updateJobCriteria, logEmail, getQuestionsForJob, answerQuestion, askQuestion, exportCandidates, saveJob, unsaveJob, getApplicationsForCurrentUser, getUserProfileForCurrentUser, updateUserProfile, getEmailsForCurrentUser, getJobAlertsForCurrentUser, updateJobAlerts, clearStrategicAgentLogs, requestAgentStop, openEmailAgent, closeEmailAgent, clearEmailAgentHistory, parseJobDescription, uploadResume, generateFollowUpEmail, generateSeekerFollowUpEmail, optimizeResumeForJob, getJobRecommendations, runEmailAgentStream, runStrategicHRAgent, runVideoAnalysisAgent, saveVideoInterview, clearError, markEmailsAsReadForCurrentUser
     };
 
-    // FIX: This provider was not returning a JSX component.
-    // Replaced JSX with React.createElement to be compatible with a .ts file extension,
-    // which resolves parsing errors.
-    return React.createElement(SmartHireContext.Provider, {
-        value: {
-            currentUser, users, jobs, candidates, applications, userProfiles, questions, emailLogs, jobAlerts, savedJobs, selectedJob, loading, error, processingAgentLogs, strategicAgentLogs, masterAgentLogs, emailAgentMessages, isEmailAgentOpen, appliedJobIds, ai, analyzingVideoAppId, login, logout, signup, sendPasswordResetLink, selectJob, createJob, updateJob, closeJob, getCandidatesForJob, getApplicationForCandidate, updateApplicationStatus, updateJobCriteria, logEmail, getQuestionsForJob, answerQuestion, askQuestion, exportCandidates, saveJob, unsaveJob, getApplicationsForCurrentUser, getUserProfileForCurrentUser, updateUserProfile, getEmailsForCurrentUser, getJobAlertsForCurrentUser, updateJobAlerts, clearProcessingAgentLogs, clearStrategicAgentLogs, requestAgentStop, openEmailAgent, closeEmailAgent, saveVideoInterview, parseJobDescription, uploadResume, generateFollowUpEmail, generateSeekerFollowUpEmail, optimizeResumeForJob, getJobRecommendations, processApplicationsAgent, runEmailAgentStream, runStrategicHRAgent, runVideoAnalysisAgent, clearError, markEmailsAsReadForCurrentUser
-        }
-    }, children);
+    // FIX: Replaced JSX with React.createElement to be valid in a .ts file, resolving parsing errors.
+    return React.createElement(SmartHireContext.Provider, { value: contextValue }, children);
 };

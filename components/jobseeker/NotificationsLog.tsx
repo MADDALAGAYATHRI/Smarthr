@@ -1,3 +1,4 @@
+
 import React, { useMemo, useEffect } from 'react';
 import { useSmartHire } from '../../hooks/useSmartHire';
 import type { Job } from '../../types';
@@ -55,7 +56,7 @@ const NotificationsLog = () => {
                     <h3 className="text-xl font-bold text-slate-900 mb-4">Upcoming Deadlines for Saved Jobs</h3>
                     <div className="space-y-3">
                         {/* FIX: Wrap DeadlineCard in a Fragment with a key to resolve the TypeScript error about the key prop. */}
-                        {upcomingDeadlines.map(job => <React.Fragment key={job.id}><DeadlineCard job={job} /></React.Fragment>)}
+                        {upcomingDeadlines.map(job => <DeadlineCard key={job.id} job={job} />)}
                     </div>
                  </div>
             )}
@@ -87,7 +88,7 @@ const NotificationsLog = () => {
 
              {emails.length === 0 && upcomingDeadlines.length === 0 && (
                 <div className="text-center py-12 bg-white rounded-xl border-2 border-dashed border-slate-300">
-                    <svg className="w-16 h-16 text-slate-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                    <svg className="w-16 h-16 text-slate-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
                     <h3 className="text-xl font-bold text-slate-800">Inbox Zero</h3>
                     <p className="text-slate-500">You have no notifications yet. Application updates and job alerts will appear here.</p>
                 </div>

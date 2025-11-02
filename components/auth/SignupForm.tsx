@@ -2,6 +2,10 @@ import React, { useState } from 'react';
 import { useSmartHire } from '../../hooks/useSmartHire';
 import type { UserRole } from '../../types';
 
+interface SignupFormProps {
+    onSignupSuccess: (email: string) => void;
+}
+
 interface RoleCardProps {
     title: string;
     description: string;
@@ -55,22 +59,25 @@ const PasswordStrengthMeter = ({ password }: { password?: string }) => {
 }
 
 
-const SignupForm = () => {
-    const { signup, error } = useSmartHire();
+const SignupForm = ({ onSignupSuccess }: SignupFormProps) => {
+    const { signup, error, loading } = useSmartHire();
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [role, setRole] = useState<UserRole>('Job Seeker');
     const [formError, setFormError] = useState<string | null>(null);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setFormError(null);
         if(!name || !email || !password || !role) {
             setFormError("Please fill out all fields.");
             return;
         }
-        signup(name, email, password, role);
+        const success = await signup(name, email, password, role);
+        if (success) {
+            onSignupSuccess(email);
+        }
     };
 
     const inputStyle = "mt-1 block w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-slate-50 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-shadow";
@@ -109,14 +116,14 @@ const SignupForm = () => {
                     <RoleCard
                         title="Job Seeker"
                         description=""
-                        icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>}
+                        icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>}
                         selected={role === 'Job Seeker'}
                         onSelect={() => setRole('Job Seeker')}
                     />
                      <RoleCard
                         title="Recruiter"
                         description=""
-                        icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 21h7a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v11m0 5l4.879-4.879m0 0a3 3 0 104.243-4.242 3 3 0 00-4.243 4.242z" /></svg>}
+                        icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 21h7a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v11m0 5l4.879-4.879m0 0a3 3 0 104.243-4.242 3 3 0 00-4.243 4.242z"></path></svg>}
                         selected={role === 'HR'}
                         onSelect={() => setRole('HR')}
                     />
@@ -125,9 +132,10 @@ const SignupForm = () => {
 
             <button
                 type="submit"
-                className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-md text-sm font-bold text-white bg-gradient-primary hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition-all duration-300"
+                disabled={loading}
+                className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-md text-sm font-bold text-white bg-gradient-primary hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition-all duration-300 disabled:opacity-75"
             >
-                Sign Up
+                {loading ? 'Creating Account...' : 'Sign Up'}
             </button>
         </form>
     );

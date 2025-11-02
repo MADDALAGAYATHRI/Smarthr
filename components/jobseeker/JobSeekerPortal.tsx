@@ -1,8 +1,7 @@
 
-
 import React, { useState, useMemo, useEffect, useRef, Fragment } from 'react';
 import { useSmartHire } from '../../hooks/useSmartHire';
-import type { Job, JobMatchScore, JobRecommendation, Question } from '../../types';
+import type { Job, JobMatchScore, JobRecommendation, Question, ConversationHistory, ChatMessage } from '../../types';
 import MyApplications from './MyApplications';
 import NotificationsLog from './NotificationsLog';
 import JobAlertManager from './JobAlertManager';
@@ -29,6 +28,19 @@ const timeAgo = (dateString: string): string => {
 const inputStyle = "w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-shadow";
 const buttonPrimary = "bg-gradient-primary text-white font-bold py-2.5 px-6 rounded-lg hover:brightness-110 transition-all duration-300 shadow-md hover:shadow-lg disabled:from-slate-200 disabled:to-slate-300 disabled:text-slate-500 disabled:shadow-none disabled:cursor-not-allowed";
 const buttonSecondary = "bg-slate-100 text-slate-800 font-bold py-2.5 px-6 rounded-lg hover:bg-slate-200 transition-colors";
+const SELF_VIDEO_QUESTION = 'Please introduce yourself and explain why you are a great fit for this role.';
+
+const Tooltip = ({ text, children, className }: { text: string; children: React.ReactNode; className?: string; }) => (
+    <div className={`relative group ${className || ''}`}>
+        {children}
+        <div className="absolute bottom-full mb-2 w-max max-w-xs px-3 py-1.5 text-xs text-white bg-slate-900 rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-10" role="tooltip">
+            {text}
+            <svg className="absolute text-slate-900 h-2 w-full left-0 top-full" x="0px" y="0px" viewBox="0 0 255 255">
+                <polygon className="fill-current" points="0,0 127.5,127.5 255,0"></polygon>
+            </svg>
+        </div>
+    </div>
+);
 
 const ScoreDonut = ({ score, size = 56 }: { score?: number; size?: number; }) => {
     if (score === undefined || score === null) return null;
@@ -50,7 +62,7 @@ const ScoreDonut = ({ score, size = 56 }: { score?: number; size?: number; }) =>
     return (
         <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
             <svg className="absolute" width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-                <circle className="stroke-slate-200" strokeWidth="5" fill="transparent" r={radius} cx={size / 2} cy={size / 2} />
+                <circle className="stroke-slate-200" strokeWidth="5" fill="transparent" r={radius} cx={size / 2} cy={size / 2}></circle>
                 <circle
                     className={`${getStrokeColor()} transition-all duration-1000 ease-out`}
                     strokeWidth="5" strokeDasharray={circumference} strokeDashoffset={offset}
@@ -58,7 +70,7 @@ const ScoreDonut = ({ score, size = 56 }: { score?: number; size?: number; }) =>
                     r={radius} cx={size / 2} cy={size / 2}
                     style={{ transition: 'stroke-dashoffset 1s ease-out' }}
                     transform={`rotate(-90 ${size / 2} ${size / 2})`}
-                />
+                ></circle>
             </svg>
             <span className={`text-base font-bold ${getTextColor()}`}>{score}</span>
         </div>
@@ -174,6 +186,126 @@ const JobQnAView = ({ job }: { job: Job }) => {
     );
 };
 
+interface VideoRecorderModalProps {
+    question: string;
+    onClose: () => void;
+    onRecordingComplete: (blob: Blob) => void;
+}
+
+const VideoRecorderModal = ({ question, onClose, onRecordingComplete }: VideoRecorderModalProps) => {
+    const [status, setStatus] = useState<'idle' | 'recording' | 'preview' | 'error'>('idle');
+    const [error, setError] = useState<string | null>(null);
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const previewVideoRef = useRef<HTMLVideoElement>(null);
+    const mediaStreamRef = useRef<MediaStream | null>(null);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const recordedChunksRef = useRef<Blob[]>([]);
+    
+    useEffect(() => {
+        const setupMedia = async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                mediaStreamRef.current = stream;
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                }
+            } catch (err) {
+                console.error("Media device error:", err);
+                setError("Could not access camera/microphone. Please check permissions.");
+                setStatus('error');
+            }
+        };
+        setupMedia();
+        
+        return () => {
+            mediaStreamRef.current?.getTracks().forEach(track => track.stop());
+        };
+    }, []);
+    
+    const startRecording = () => {
+        if (!mediaStreamRef.current) return;
+        recordedChunksRef.current = [];
+        mediaRecorderRef.current = new MediaRecorder(mediaStreamRef.current, { mimeType: 'video/webm' });
+        mediaRecorderRef.current.ondataavailable = (e) => {
+            if (e.data.size > 0) {
+                recordedChunksRef.current.push(e.data);
+            }
+        };
+        mediaRecorderRef.current.onstop = () => {
+            const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+            if (previewVideoRef.current) {
+                previewVideoRef.current.src = URL.createObjectURL(blob);
+            }
+            setStatus('preview');
+        };
+        mediaRecorderRef.current.start();
+        setStatus('recording');
+    };
+    
+    const stopRecording = () => {
+        mediaRecorderRef.current?.stop();
+    };
+
+    const handleUseVideo = () => {
+        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+        onRecordingComplete(blob);
+    };
+
+    const handleRerecord = () => {
+        recordedChunksRef.current = [];
+        if (previewVideoRef.current && previewVideoRef.current.src) {
+            URL.revokeObjectURL(previewVideoRef.current.src);
+            previewVideoRef.current.src = "";
+        }
+        setStatus('idle');
+    };
+
+    return (
+        <div className="fixed inset-0 bg-slate-900 bg-opacity-75 flex items-center justify-center z-[70] p-4">
+            <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-2xl" onClick={e => e.stopPropagation()}>
+                <h3 className="text-2xl font-bold text-slate-900 mb-2">Video Introduction</h3>
+                <p className="text-slate-600 mb-4 p-3 bg-slate-50 rounded-lg border">Question: <span className="font-semibold">{question}</span></p>
+
+                <div className="relative w-full aspect-video bg-slate-900 rounded-lg overflow-hidden mb-4 border-4 border-slate-200 shadow-lg">
+                    {status !== 'preview' && (
+                        <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover transform scale-x-[-1]"></video>
+                    )}
+                    {status === 'preview' && (
+                        <video ref={previewVideoRef} controls className="w-full h-full object-contain"></video>
+                    )}
+                    {status === 'recording' && (
+                        <div className="absolute top-4 left-4 flex items-center space-x-2 bg-red-600 text-white text-sm font-bold px-3 py-1 rounded-full animate-pulse"><div className="w-2.5 h-2.5 bg-white rounded-full"></div><span>REC</span></div>
+                    )}
+                </div>
+
+                {status === 'error' && <p className="text-red-500 text-center">{error}</p>}
+
+                <div className="flex justify-center items-center space-x-4">
+                    {status === 'idle' && (
+                        <button onClick={startRecording} className="bg-red-600 text-white font-bold py-3 px-8 rounded-full hover:bg-red-700 flex items-center space-x-2">
+                            <div className="w-3 h-3 bg-white rounded-full"></div>
+                            <span>Start Recording</span>
+                        </button>
+                    )}
+                    {status === 'recording' && (
+                        <button onClick={stopRecording} className="bg-slate-700 text-white font-bold py-3 px-8 rounded-full hover:bg-slate-800 flex items-center space-x-2">
+                             <div className="w-3 h-3 bg-white rounded-sm"></div>
+                            <span>Stop Recording</span>
+                        </button>
+                    )}
+                    {status === 'preview' && (
+                        <>
+                            <button onClick={handleRerecord} className={buttonSecondary}>Re-record</button>
+                            <button onClick={handleUseVideo} className={buttonPrimary}>Use This Video</button>
+                        </>
+                    )}
+                </div>
+                 <button onClick={onClose} className="absolute top-4 right-4 text-3xl font-light text-slate-500 hover:text-slate-800">&times;</button>
+            </div>
+        </div>
+    );
+};
+
 interface JobDetailModalProps {
     job: Job;
     hasApplied: boolean;
@@ -186,6 +318,8 @@ const JobDetailModal = ({ job, hasApplied, onClose, onNavigateToApplications, on
     const userProfile = getUserProfileForCurrentUser();
 
     const [resumeFile, setResumeFile] = useState<File | null>(null);
+    const [videoBlob, setVideoBlob] = useState<Blob | null>(null);
+    const [isRecording, setIsRecording] = useState(false);
     const [isApplying, setIsApplying] = useState(false);
     const [applyError, setApplyError] = useState<string | null>(null);
 
@@ -202,14 +336,18 @@ const JobDetailModal = ({ job, hasApplied, onClose, onNavigateToApplications, on
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!resumeFile) {
+        if (!resumeFile && !userProfile) { // require resume only if no profile exists
             setApplyError("Please select a resume file to apply.");
+            return;
+        }
+        if (job.isVideoIntroRequired && !videoBlob) {
+            setApplyError("A video introduction is required for this application.");
             return;
         }
         setIsApplying(true);
         setApplyError(null);
         try {
-            await uploadResume(job.id, resumeFile);
+            await uploadResume(job.id, resumeFile!, videoBlob); // resumeFile will be present or we use existing from profile
             alert('Application submitted successfully! You can track its status in the "My Applications" tab.');
             onClose();
         } catch (err) {
@@ -235,10 +373,15 @@ const JobDetailModal = ({ job, hasApplied, onClose, onNavigateToApplications, on
     
     const handleApplyWithOptimized = async (optimizedText: string) => {
         const optimizedFile = new File([optimizedText], 'Optimized_Resume.txt', { type: 'text/plain' });
+         if (job.isVideoIntroRequired && !videoBlob) {
+            setOptimizerError("Please record your video introduction before applying with an optimized resume.");
+            // We don't close the optimizer modal, so the user can see the error
+            return;
+        }
         setIsApplying(true);
         setApplyError(null);
         try {
-            await uploadResume(job.id, optimizedFile);
+            await uploadResume(job.id, optimizedFile, videoBlob);
             alert('Optimized application submitted successfully!');
             setOptimizationResult(null);
             onClose();
@@ -255,7 +398,7 @@ const JobDetailModal = ({ job, hasApplied, onClose, onNavigateToApplications, on
              return (
                 <div className="text-center py-4">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
-                    <p className="text-slate-800">Analyzing your resume with Gemini...</p>
+                    <p className="text-slate-800">Analyzing your resume & video with Gemini...</p>
                 </div>
             )
         }
@@ -264,16 +407,34 @@ const JobDetailModal = ({ job, hasApplied, onClose, onNavigateToApplications, on
                  <form onSubmit={handleSubmit} className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-4">
                     <h4 className="font-bold text-slate-800 mb-1">Apply for this Job</h4>
                     <p className="text-sm text-slate-600 -mt-3 mb-3">Your profile will be automatically created from your resume upon your first application.</p>
-                    <div className="flex flex-col sm:flex-row items-center gap-4">
-                        <div className="flex-grow w-full">
-                            <label htmlFor="resume-upload" className="sr-only">Upload Resume</label>
-                            <input id="resume-upload" type="file" onChange={handleFileChange} accept=".txt,.pdf,.md,.docx" required className={`${inputStyle} file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/20 file:text-primary hover:file:bg-primary/30`} />
-                            {resumeFile && <p className="text-xs text-slate-600 mt-1">Selected: {resumeFile.name}</p>}
+                    
+                    <div>
+                        <label htmlFor="resume-upload-no-profile" className="block text-sm font-semibold text-slate-700 mb-2">1. Upload Your Resume</label>
+                        <input id="resume-upload-no-profile" type="file" onChange={handleFileChange} accept=".txt,.pdf,.md,.docx" required className={`${inputStyle} file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/20 file:text-primary hover:file:bg-primary/30`} />
+                        {resumeFile && <p className="text-xs text-slate-600 mt-1">Selected: {resumeFile.name}</p>}
+                    </div>
+
+                    {job.isVideoIntroRequired && (
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-700 mb-2">2. Record Video Introduction</label>
+                            <p className="text-xs text-slate-500 mb-2">{SELF_VIDEO_QUESTION}</p>
+                            {videoBlob ? (
+                                <div className="flex items-center justify-between bg-green-50 p-3 rounded-lg border border-green-200">
+                                    <p className="font-semibold text-green-800">Video recorded!</p>
+                                    <button type="button" onClick={() => setIsRecording(true)} className="text-sm font-semibold text-primary hover:underline">Re-record</button>
+                                </div>
+                            ) : (
+                                <button type="button" onClick={() => setIsRecording(true)} className="w-full font-semibold py-2 px-4 rounded-lg transition-all duration-300 bg-gradient-accent text-white hover:brightness-110 shadow-sm">Record Answer</button>
+                            )}
                         </div>
-                        <button type="submit" className="w-full sm:w-auto flex-shrink-0 bg-gradient-primary text-white font-bold py-2.5 px-6 rounded-lg hover:brightness-110 shadow-md">
+                    )}
+
+                    <div className="pt-2">
+                        <button type="submit" disabled={!resumeFile || (job.isVideoIntroRequired && !videoBlob)} className="w-full bg-gradient-primary text-white font-bold py-2.5 px-6 rounded-lg hover:brightness-110 shadow-md">
                             Submit Application
                         </button>
                     </div>
+
                      {(applyError || contextError) && <p className="text-red-500 text-sm mt-2 text-center">{applyError || contextError}</p>}
                 </form>
             )
@@ -282,13 +443,30 @@ const JobDetailModal = ({ job, hasApplied, onClose, onNavigateToApplications, on
             <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-4">
                 <form onSubmit={handleSubmit}>
                     <h4 className="font-bold text-slate-800 mb-3">Apply with your current resume</h4>
-                    <div className="flex flex-col sm:flex-row items-center gap-4">
-                        <div className="flex-grow w-full">
-                            <label htmlFor="resume-upload" className="sr-only">Upload Resume</label>
-                            <input id="resume-upload" type="file" onChange={handleFileChange} accept=".txt,.pdf,.md,.docx" className={`${inputStyle} file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/20 file:text-primary hover:file:bg-primary/30`} />
-                            {resumeFile && <p className="text-xs text-slate-600 mt-1">Selected: {resumeFile.name}</p>}
+                    
+                     <div>
+                        <label htmlFor="resume-upload-profile" className="block text-sm font-semibold text-slate-700 mb-2">1. Upload or Update Resume</label>
+                        <input id="resume-upload-profile" type="file" onChange={handleFileChange} accept=".txt,.pdf,.md,.docx" className={`${inputStyle} file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/20 file:text-primary hover:file:bg-primary/30`} />
+                        {resumeFile ? <p className="text-xs text-slate-600 mt-1">New resume selected: {resumeFile.name}</p> : <p className="text-xs text-slate-600 mt-1">If no file is selected, your existing resume will be used.</p>}
+                    </div>
+
+                    {job.isVideoIntroRequired && (
+                        <div className="mt-4">
+                            <label className="block text-sm font-semibold text-slate-700 mb-2">2. Record Video Introduction</label>
+                            <p className="text-xs text-slate-500 mb-2">{SELF_VIDEO_QUESTION}</p>
+                            {videoBlob ? (
+                                <div className="flex items-center justify-between bg-green-50 p-3 rounded-lg border border-green-200">
+                                    <p className="font-semibold text-green-800">Video recorded!</p>
+                                    <button type="button" onClick={() => setIsRecording(true)} className="text-sm font-semibold text-primary hover:underline">Re-record</button>
+                                </div>
+                            ) : (
+                                <button type="button" onClick={() => setIsRecording(true)} className="w-full font-semibold py-2 px-4 rounded-lg transition-all duration-300 bg-gradient-accent text-white hover:brightness-110 shadow-sm">Record Answer</button>
+                            )}
                         </div>
-                        <button type="submit" className="w-full sm:w-auto flex-shrink-0 bg-gradient-primary text-white font-bold py-2.5 px-6 rounded-lg hover:brightness-110 shadow-md">
+                    )}
+                    
+                     <div className="pt-4">
+                        <button type="submit" disabled={job.isVideoIntroRequired && !videoBlob} className="w-full bg-gradient-primary text-white font-bold py-2.5 px-6 rounded-lg hover:brightness-110 shadow-md">
                             Submit Application
                         </button>
                     </div>
@@ -318,6 +496,17 @@ const JobDetailModal = ({ job, hasApplied, onClose, onNavigateToApplications, on
 
     return (
         <>
+        {isRecording && (
+            <VideoRecorderModal
+                question={SELF_VIDEO_QUESTION}
+                onClose={() => setIsRecording(false)}
+                onRecordingComplete={(blob) => {
+                    setVideoBlob(blob);
+                    setIsRecording(false);
+                    setApplyError(null);
+                }}
+            />
+        )}
         {optimizationResult && (
             <ResumeOptimizerModal 
                 result={optimizationResult}
@@ -382,10 +571,10 @@ const JobCard = ({ job, score, reason, hasApplied, isSaved, onSelect, onSaveTogg
         <div className="flex-grow">
             <div className="flex items-start justify-between">
                 <div className="flex items-start space-x-4">
-                    <img src={`https://picsum.photos/seed/${job.id}/40/40`} alt="Company Logo" className="w-10 h-10 rounded-md mt-1" />
+                    <img src={job.companyLogo} alt={`${job.companyName} Logo`} className="w-10 h-10 rounded-md mt-1" />
                     <div>
                         <h4 className="font-bold text-lg text-slate-900 group-hover:text-primary transition-colors">{job.title}</h4>
-                        <p className="text-sm text-slate-500">A Great Company Inc.</p>
+                        <p className="text-sm text-slate-500">{job.companyName}</p>
                     </div>
                 </div>
                 {score !== undefined && (
@@ -403,7 +592,7 @@ const JobCard = ({ job, score, reason, hasApplied, isSaved, onSelect, onSaveTogg
 
             {reason && (
                  <div className="my-2 p-3 bg-primary/10 rounded-lg text-sm text-primary-dark flex items-start space-x-2">
-                    <svg className="w-5 h-5 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+                    <svg className="w-5 h-5 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"></path></svg>
                      <span><span className="font-bold">AI Insight:</span> {reason}</span>
                  </div>
             )}
@@ -426,7 +615,7 @@ const JobCard = ({ job, score, reason, hasApplied, isSaved, onSelect, onSaveTogg
          
         <button onClick={(e) => { e.stopPropagation(); onSaveToggle(); }} className={`absolute top-4 left-4 text-slate-400 hover:text-primary transition-colors p-1.5 rounded-full ${isSaved ? 'bg-amber-100/80' : 'bg-slate-100/80'}`} aria-label={isSaved ? 'Unsave job' : 'Save job'}>
             <svg className={`w-5 h-5 ${isSaved ? 'text-amber-500' : ''}`} fill={isSaved ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path>
             </svg>
         </button>
 
@@ -468,8 +657,7 @@ const JobGrid = ({ jobs, onNavigateToApplications, onNavigateToProfile, recommen
             {jobs.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {jobs.map(job => (
-                        // FIX: Wrap JobCard in a Fragment with a key to resolve the TypeScript error about the key prop.
-                         <Fragment key={job.id}>
+                        <Fragment key={job.id}>
                             <JobCard 
                                 job={job}
                                 score={scores.find(s => s.jobId === job.id)?.matchScore}
@@ -484,7 +672,7 @@ const JobGrid = ({ jobs, onNavigateToApplications, onNavigateToProfile, recommen
                 </div>
             ) : (
                  <div className="text-center py-12 bg-white rounded-xl border-2 border-dashed border-slate-300">
-                     <svg className="w-16 h-16 text-slate-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                     <svg className="w-16 h-16 text-slate-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                     <h3 className="text-xl font-bold text-slate-800">{emptyStateTitle}</h3>
                     <p className="text-slate-500">{emptyStateMessage}</p>
                 </div>
@@ -619,221 +807,147 @@ interface EmailAgentWidgetProps {
     onClose: () => void;
 }
 const EmailAgentWidget = ({ isOpen, onClose }: EmailAgentWidgetProps) => {
-    const { emailAgentMessages, runEmailAgentStream, loading, requestAgentStop, openEmailAgent } = useSmartHire();
+    const { emailAgentMessages, runEmailAgentStream, loading, emailAgentHistory, clearEmailAgentHistory } = useSmartHire();
     const [prompt, setPrompt] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
+        if (emailAgentMessages.length === 1 && emailAgentMessages[0].role === 'user') {
+            setPrompt(emailAgentMessages[0].parts[0].text);
+        }
+    }, [emailAgentMessages]);
+
+    useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [emailAgentMessages]);
-    
-    const handleSubmit = (e: React.FormEvent) => {
+
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if(!prompt.trim() || loading) return;
-        runEmailAgentStream(prompt);
+        if (!prompt.trim() || loading) return;
+        await runEmailAgentStream(prompt);
         setPrompt('');
-    }
+    };
 
     if (!isOpen) {
-        return (
-            <button
-                onClick={() => openEmailAgent()}
-                className="fixed bottom-6 right-6 bg-primary text-white rounded-full p-4 shadow-lg hover:bg-primary-dark transition-transform hover:scale-110 z-50"
-                aria-label="Open Email Assistant"
-            >
-                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
-            </button>
-        );
+        return null;
     }
-    
+
+    const renderMessageContent = (message: ChatMessage) => {
+        // Simple markdown for bold text **text**
+        const parts = message.parts[0].text.split(/(\*\*.*?\*\*)/g).map((part, index) => {
+            if (part.startsWith('**') && part.endsWith('**')) {
+                return <strong key={index}>{part.slice(2, -2)}</strong>;
+            }
+            return part;
+        });
+        return <p>{parts}</p>;
+    };
+
     return (
-        <div className="fixed bottom-6 right-6 w-full max-w-sm h-[500px] bg-white rounded-xl shadow-2xl border border-slate-200 z-50 flex flex-col animate-fade-in-up">
-            <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50 rounded-t-xl">
-                <div className="flex items-center space-x-2">
-                    <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
-                    <h3 className="text-lg font-bold text-slate-900">Email Assistant</h3>
+        <div className="fixed bottom-4 right-4 sm:right-8 w-[calc(100%-2rem)] sm:w-96 h-[70vh] max-h-[600px] bg-white rounded-2xl shadow-2xl flex flex-col z-50 animate-fade-in-up border border-slate-200">
+            <header className="p-4 border-b flex justify-between items-center flex-shrink-0">
+                <div>
+                    <h3 className="font-bold text-lg text-slate-900">AI Career Assistant</h3>
+                    <p className="text-xs text-slate-500">Your personal job application helper.</p>
                 </div>
-                <button onClick={onClose} className="text-2xl font-light text-slate-500 hover:text-slate-800">&times;</button>
-            </div>
-            
-             <div className="flex-grow p-4 overflow-y-auto flex flex-col space-y-4">
+                <div className="flex items-center space-x-2">
+                    {emailAgentHistory.length > 0 && (
+                        <button onClick={clearEmailAgentHistory} className="text-slate-500 hover:text-slate-800 p-1 rounded-full text-xs" title="Clear History">Clear</button>
+                    )}
+                    <button onClick={onClose} className="text-3xl font-light leading-none text-slate-500 hover:text-slate-800">&times;</button>
+                </div>
+            </header>
+            <div className="flex-grow p-4 overflow-y-auto space-y-4">
                 {emailAgentMessages.length === 0 && (
-                    <div className="m-auto text-center text-slate-500 px-4">
-                        <p className="font-semibold">Need help drafting an email?</p>
-                        <p className="text-sm">Try asking: "Help me write a follow-up email for my application to the Frontend Engineer role."</p>
+                    <div className="text-center text-slate-500 h-full flex flex-col justify-center">
+                        <p>I can help you draft professional emails, like follow-ups or thank you notes.</p>
+                        <p className="mt-2 text-xs">Example: "Draft a follow up for the Frontend Developer job."</p>
                     </div>
                 )}
-                {emailAgentMessages.map((msg, index) => (
-                    <div key={index} className={`flex items-start gap-3 ${msg.role === 'user' ? 'self-end' : 'self-start'}`}>
-                        {msg.role === 'model' && <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center flex-shrink-0 font-bold text-sm">AI</div>}
-                        <div className={`max-w-xs p-3 rounded-lg ${msg.role === 'user' ? 'bg-primary text-white' : 'bg-slate-200 text-slate-800'}`}>
-                           <pre className="whitespace-pre-wrap font-sans text-sm">{msg.parts.map(p => p.text).join('')}</pre>
+                {emailAgentMessages.map((msg, i) => (
+                     <div key={i} className={`flex items-end gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        {msg.role === 'model' && <div className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center flex-shrink-0 text-sm font-bold">AI</div>}
+                        <div className={`p-3 rounded-xl max-w-xs text-sm ${msg.role === 'user' ? 'bg-primary text-white' : 'bg-slate-100 text-slate-800'}`}>
+                            {renderMessageContent(msg)}
                         </div>
                     </div>
                 ))}
-                 {loading && emailAgentMessages.some(m => m.role === 'user') && (
-                     <div className="flex items-start gap-3 self-start">
-                        <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center flex-shrink-0 font-bold text-sm">AI</div>
-                        <div className="max-w-xs p-3 rounded-lg bg-slate-200 text-slate-800">
-                            <div className="flex items-center space-x-2">
-                                <div className="w-2 h-2 bg-slate-500 rounded-full animate-pulse [animation-delay:-.3s]"></div>
-                                <div className="w-2 h-2 bg-slate-500 rounded-full animate-pulse [animation-delay:-.15s]"></div>
-                                <div className="w-2 h-2 bg-slate-500 rounded-full animate-pulse"></div>
-                            </div>
-                        </div>
-                    </div>
-                 )}
+                 {loading && <div className="text-center text-slate-500 text-sm">Thinking...</div>}
                 <div ref={messagesEndRef} />
             </div>
-
-             <form onSubmit={handleSubmit} className="p-4 border-t border-slate-200">
-                 <div className="flex gap-2">
-                    <input type="text" placeholder="Ask your assistant..." value={prompt} onChange={e => setPrompt(e.target.value)} className={inputStyle} disabled={loading} />
-                    {loading ? (
-                         <button type="button" onClick={requestAgentStop} className="bg-red-500 text-white font-bold py-2 px-3 rounded-lg hover:bg-red-600 transition-colors">
-                            Stop
-                        </button>
-                    ) : (
-                        <button type="submit" className="bg-primary text-white font-bold py-2 px-3 rounded-lg hover:bg-primary-dark transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed" disabled={!prompt.trim()}>
-                            Send
-                        </button>
-                    )}
-                </div>
-            </form>
+            <footer className="p-4 border-t flex-shrink-0">
+                <form onSubmit={handleSubmit} className="flex gap-2">
+                    <input type="text" value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="Ask to draft an email..." className={inputStyle} disabled={loading} />
+                    <button type="submit" className="bg-primary text-white font-semibold py-2 px-4 rounded-lg hover:bg-primary-dark disabled:bg-slate-300" disabled={loading || !prompt.trim()}>Send</button>
+                </form>
+            </footer>
         </div>
     );
 };
 
+
+type Tab = 'available' | 'saved' | 'applications' | 'profile' | 'alerts' | 'notifications' | 'calendar';
+
 const JobSeekerPortal = () => {
-    type Tab = 'available' | 'saved' | 'applications' | 'notifications' | 'alerts' | 'calendar' | 'profile';
     const [activeTab, setActiveTab] = useState<Tab>('available');
-    
-    const { jobs, currentUser, isEmailAgentOpen, closeEmailAgent } = useSmartHire();
-    // FIX: Use a type predicate in the filter to ensure TypeScript correctly infers
-    // that `uniqueLocations` is an array of strings, not `(string | undefined)[]`.
-    // This resolves the error where an undefined value could be used as a React key.
-    const uniqueLocations = useMemo(() => [...new Set(jobs.map(j => j.location).filter((l): l is string => !!l))], [jobs]);
-
-    // Filter state
-    const [searchTerm, setSearchTerm] = useState('');
-    const [workModel, setWorkModel] = useState('All');
-    const [location, setLocation] = useState('All');
-    const [datePosted, setDatePosted] = useState('Any Time');
+    const [filters, setFilters] = useState({ searchTerm: '', workModel: 'All', location: 'All', datePosted: 'Any Time' });
     const [sortBy, setSortBy] = useState<'relevance' | 'date'>('relevance');
+    const { jobs, savedJobs, getEmailsForCurrentUser, isEmailAgentOpen, closeEmailAgent, openEmailAgent } = useSmartHire();
+    
+    const notificationsCount = getEmailsForCurrentUser().filter(e => !e.read).length;
 
-    const handleClearFilters = () => {
-        setSearchTerm('');
-        setWorkModel('All');
-        setLocation('All');
-        setDatePosted('Any Time');
-        setSortBy('relevance');
+    const getTabClass = (tabId: Tab) => `relative px-3 py-2 rounded-md font-semibold transition-colors text-sm flex items-center space-x-2 ${activeTab === tabId ? 'text-primary' : 'text-slate-600 hover:text-primary'}`;
+    
+    const handleProfileCreated = () => {
+        alert("Profile successfully created from your resume! You can now manage your job alerts and view AI-powered recommendations.");
+        setActiveTab('available');
     };
 
-    const tabs: { id: Tab; label: string; icon: React.ReactElement }[] = [
-        { id: 'available', label: 'Available Jobs', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg> },
-        { id: 'saved', label: 'Saved Jobs', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg> },
-        { id: 'applications', label: 'My Applications', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> },
-        { id: 'notifications', label: 'Notifications', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg> },
-        { id: 'alerts', label: 'Job Alerts', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg> },
-        { id: 'calendar', label: 'My Calendar', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg> },
-        { id: 'profile', label: 'My Profile', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg> },
-    ];
-
-    const getTabClass = (tabId: Tab) => `relative flex items-center space-x-2 px-3 sm:px-4 py-2.5 rounded-lg font-semibold transition-colors text-sm whitespace-nowrap ${activeTab === tabId ? 'text-primary' : 'text-slate-600 hover:text-primary'}`;
-
     const renderContent = () => {
-        const navProps = { 
-            onNavigateToApplications: () => setActiveTab('applications'),
-            onNavigateToProfile: () => setActiveTab('profile')
-        };
         switch (activeTab) {
-            case 'available': return <AvailableJobs filters={{ searchTerm, workModel, location, datePosted }} sortBy={sortBy} {...navProps} />;
-            case 'saved': return <SavedJobs {...navProps} />;
-            case 'applications': return <MyApplications />;
-            case 'notifications': return <NotificationsLog />;
-            case 'alerts': return <JobAlertManager />;
-            case 'calendar': return <JobSeekerCalendarView />;
-            case 'profile': return <UserProfile onProfileCreated={() => setActiveTab('available')} />;
-            default: return null;
+            case 'available':
+                return <AvailableJobs filters={filters} sortBy={sortBy} onNavigateToApplications={() => setActiveTab('applications')} onNavigateToProfile={() => setActiveTab('profile')} />;
+            case 'saved':
+                return <SavedJobs onNavigateToApplications={() => setActiveTab('applications')} onNavigateToProfile={() => setActiveTab('profile')} />;
+            case 'applications':
+                return <MyApplications />;
+            case 'profile':
+                return <UserProfile onProfileCreated={handleProfileCreated} />;
+            case 'alerts':
+                return <JobAlertManager />;
+            case 'notifications':
+                return <NotificationsLog />;
+            case 'calendar':
+                return <JobSeekerCalendarView />;
+            default:
+                return null;
         }
     };
 
     return (
-        <div className="relative">
-            <h2 className="text-3xl font-bold text-slate-900">Job Seeker Dashboard</h2>
-            <p className="text-slate-600 mt-1 mb-6">Welcome back, {currentUser?.name}. Let's find your next opportunity.</p>
-
-            <div className="border-b border-slate-200 mb-6">
+        <div className="space-y-6">
+            <EmailAgentWidget isOpen={isEmailAgentOpen} onClose={closeEmailAgent} />
+             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <h2 className="text-3xl font-bold text-slate-900">Job Seeker Portal</h2>
+                 <button onClick={() => openEmailAgent()} className="bg-gradient-accent text-white font-bold py-2 px-4 rounded-lg hover:brightness-110 flex items-center space-x-2 shadow-sm whitespace-nowrap">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+                    <span>AI Assistant</span>
+                </button>
+            </div>
+            <div className="border-b border-slate-200">
                 <nav className="-mb-px flex space-x-2 sm:space-x-4 overflow-x-auto" aria-label="Tabs">
-                    {tabs.map(tab => (
-                        <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={getTabClass(tab.id)} aria-current={activeTab === tab.id}>
-                            {tab.icon}
-                            <span className="hidden md:inline">{tab.label}</span>
-                             {activeTab === tab.id && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t-full"></span>}
-                        </button>
-                    ))}
+                    <button onClick={() => setActiveTab('available')} className={getTabClass('available')}><span>Available Jobs</span>{activeTab === 'available' && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t-full"></span>}</button>
+                    <button onClick={() => setActiveTab('saved')} className={getTabClass('saved')}><span>Saved Jobs ({savedJobs.size})</span>{activeTab === 'saved' && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t-full"></span>}</button>
+                    <button onClick={() => setActiveTab('applications')} className={getTabClass('applications')}><span>My Applications</span>{activeTab === 'applications' && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t-full"></span>}</button>
+                    <button onClick={() => setActiveTab('profile')} className={getTabClass('profile')}><span>My Profile</span>{activeTab === 'profile' && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t-full"></span>}</button>
+                    <button onClick={() => setActiveTab('alerts')} className={getTabClass('alerts')}><span>Job Alerts</span>{activeTab === 'alerts' && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t-full"></span>}</button>
+                    <button onClick={() => setActiveTab('notifications')} className={getTabClass('notifications')}><span>Notifications {notificationsCount > 0 && <span className="ml-1 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">{notificationsCount}</span>}</span>{activeTab === 'notifications' && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t-full"></span>}</button>
+                    <button onClick={() => setActiveTab('calendar')} className={getTabClass('calendar')}><span>Calendar</span>{activeTab === 'calendar' && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t-full"></span>}</button>
                 </nav>
             </div>
-
-            {activeTab === 'available' && (
-                <div className="bg-white p-4 rounded-xl shadow-card border border-slate-200 mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 items-end">
-                    <div className="xl:col-span-2">
-                        <label htmlFor="search-term" className="text-sm font-bold text-slate-800 mb-1 block">Search</label>
-                        <div className="relative">
-                            <input id="search-term" type="text" placeholder="Job title, keyword..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className={inputStyle}/>
-                            <svg className="w-5 h-5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                        </div>
-                    </div>
-                     <div>
-                        <label htmlFor="location" className="text-sm font-bold text-slate-800 mb-1 block">Location</label>
-                        <select id="location" value={location} onChange={e => setLocation(e.target.value)} className={inputStyle}>
-                            <option>All</option>
-                            {uniqueLocations.map(loc => <option key={loc}>{loc}</option>)}
-                        </select>
-                    </div>
-                     <div>
-                        <label htmlFor="work-model" className="text-sm font-bold text-slate-800 mb-1 block">Work Model</label>
-                        <select id="work-model" value={workModel} onChange={e => setWorkModel(e.target.value)} className={inputStyle}>
-                            <option>All</option>
-                            <option>On-site</option>
-                            <option>Remote</option>
-                            <option>Hybrid</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label htmlFor="date-posted" className="text-sm font-bold text-slate-800 mb-1 block">Date Posted</label>
-                        <select id="date-posted" value={datePosted} onChange={e => setDatePosted(e.target.value)} className={inputStyle}>
-                            <option>Any Time</option>
-                            <option>Past 24 hours</option>
-                            <option>Past week</option>
-                            <option>Past month</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label htmlFor="sort-by" className="text-sm font-bold text-slate-800 mb-1 block">Sort By</label>
-                        <select id="sort-by" value={sortBy} onChange={e => setSortBy(e.target.value as 'relevance' | 'date')} className={inputStyle}>
-                            <option value="relevance">Relevance</option>
-                            <option value="date">Newest</option>
-                        </select>
-                    </div>
-                     <div>
-                         <button
-                            type="button"
-                            onClick={handleClearFilters}
-                            className="w-full bg-slate-100 text-slate-700 font-bold py-2 px-4 rounded-lg hover:bg-slate-200 transition-colors"
-                        >
-                            Clear
-                        </button>
-                    </div>
-                </div>
-            )}
-
-
-            <div className="mt-6 animate-fade-in-up">
+            <div className="animate-fade-in-up">
                 {renderContent()}
             </div>
-            
-            <EmailAgentWidget isOpen={isEmailAgentOpen} onClose={closeEmailAgent} />
         </div>
     );
 };
