@@ -1,4 +1,3 @@
-
 import type { User, Job, Candidate, Application, UserProfile, Question } from '../types';
 
 export const MOCK_USERS: User[] = [
@@ -22,7 +21,8 @@ export const MOCK_JOBS: Job[] = [
     workModel: 'Hybrid',
     minAtsScore: 75,
     numberOfPositions: 2,
-    processingStatus: 'Pending'
+    processingStatus: 'Pending',
+    aiInterviewAfterScreening: true,
   },
   {
     id: 'job-2',
@@ -38,7 +38,8 @@ export const MOCK_JOBS: Job[] = [
     workModel: 'Remote',
     minAtsScore: 80,
     numberOfPositions: 1,
-    processingStatus: 'Pending'
+    processingStatus: 'Pending',
+    aiInterviewAfterScreening: true,
   },
   {
     id: 'job-3',
@@ -68,6 +69,9 @@ export const MOCK_CANDIDATES: Candidate[] = [
         weaknesses: ['Limited backend knowledge'],
         resumeText: 'Here is the resume text for Bob Smith...',
         appliedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+        skills: ['React', 'TypeScript', 'JavaScript', 'HTML5', 'CSS3', 'Redux', 'Webpack'],
+        projects: ['Developed a real-time chat application using Socket.IO and React.', 'Built a responsive e-commerce dashboard with data visualization.'],
+        certifications: ['Certified React Developer'],
     },
     {
         id: 'cand-2',
@@ -81,12 +85,33 @@ export const MOCK_CANDIDATES: Candidate[] = [
         weaknesses: ['No Python or AWS experience'],
         resumeText: 'Here is the resume text for Bob Smith...',
         appliedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+        skills: ['Node.js', 'Express', 'MongoDB', 'REST APIs'],
+        projects: ['Created a RESTful API for a mobile banking application.'],
     }
 ];
 
 export const MOCK_APPLICATIONS: Application[] = [
     { id: 'app-1', jobId: 'job-1', userId: 'user-1', candidateId: 'cand-1', status: 'Under Review' },
-    { id: 'app-2', jobId: 'job-2', userId: 'user-1', candidateId: 'cand-2', status: 'Interviewing' },
+    { 
+      id: 'app-2', 
+      jobId: 'job-2', 
+      userId: 'user-1', 
+      candidateId: 'cand-2', 
+      status: 'Interviewing',
+      interviewScore: 84,
+      aiEvaluationSummary: "The candidate shows good foundational knowledge and communicates effectively. Their communication style is professional and well-suited for a collaborative engineering role.",
+      recommendation: "Qualified for Next Round",
+      skillBreakdown: [
+        { skill: 'Node.js', score: 85, rationale: "Demonstrated solid understanding of asynchronous programming." },
+        { skill: 'System Design', score: 70, rationale: "Provided a reasonable but basic approach to system architecture." },
+      ],
+      communicationAnalysis: {
+          clarity: { score: 88, rationale: "Candidate uses clear and direct language to explain complex topics." },
+          confidence: { score: 78, rationale: "Speaks decisively, though occasionally uses filler words when thinking." },
+          articulation: { score: 85, rationale: "Well-structured responses that logically answer the questions." },
+          overallFit: { score: 83, rationale: "Communication style is professional and suitable for a collaborative engineering role." },
+      },
+    },
 ];
 
 export const MOCK_PROFILES: UserProfile[] = [

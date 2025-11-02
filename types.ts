@@ -29,6 +29,9 @@ export interface Job {
   minAtsScore?: number;
   workModel?: 'On-site' | 'Remote' | 'Hybrid';
   processingStatus?: 'Pending' | 'Completed';
+  requireSelfVideo?: boolean;
+  selfVideoQuestion?: string;
+  aiInterviewAfterScreening?: boolean;
 }
 
 export interface Candidate {
@@ -43,9 +46,26 @@ export interface Candidate {
   weaknesses: string[];
   resumeText: string;
   appliedAt: string;
+  skills?: string[];
+  projects?: string[];
+  publications?: string[];
+  certifications?: string[];
 }
 
 export type ApplicationStatus = 'Under Review' | 'Interviewing' | 'Rejected' | 'Hired';
+
+export interface CommunicationMetric {
+  score: number;
+  rationale: string;
+}
+
+export interface CommunicationAnalysis {
+  clarity: CommunicationMetric;
+  confidence: CommunicationMetric;
+  articulation: CommunicationMetric;
+  overallFit: CommunicationMetric;
+}
+
 
 export interface Application {
     id:string;
@@ -53,6 +73,13 @@ export interface Application {
     userId: string;
     candidateId: string;
     status: ApplicationStatus;
+    videoInterviewUrl?: string;
+    interviewTranscript?: string;
+    interviewScore?: number;
+    skillBreakdown?: { skill: string; score: number; rationale: string; }[];
+    communicationAnalysis?: CommunicationAnalysis;
+    aiEvaluationSummary?: string;
+    recommendation?: string;
 }
 
 export interface GeminiScoreResponse {
@@ -62,6 +89,10 @@ export interface GeminiScoreResponse {
   summary: string;
   strengths: string[];
   weaknesses: string[];
+  projects?: string[];
+  publications?: string[];
+  certifications?: string[];
+  skills?: string[];
 }
 
 export interface EmailLog {
@@ -72,6 +103,7 @@ export interface EmailLog {
   subject: string;
   body: string;
   sentAt: string;
+  read: boolean;
 }
 
 export interface JobAlertSubscription {

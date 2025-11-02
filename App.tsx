@@ -5,9 +5,10 @@ import AuthPage from './components/AuthPage';
 import HRDashboard from './components/hr/HRDashboard';
 import JobSeekerPortal from './components/jobseeker/JobSeekerPortal';
 import Header from './components/common/Header';
+import ErrorModal from './components/common/ErrorModal';
 
 const AppContent = () => {
-    const { currentUser, logout } = useSmartHire();
+    const { currentUser, logout, error, clearError } = useSmartHire();
 
     const renderContent = () => {
         if (!currentUser) {
@@ -27,6 +28,7 @@ const AppContent = () => {
 
     return (
         <div className="bg-slate-50 min-h-screen font-sans text-slate-800">
+            {error && <ErrorModal message={error} onClose={clearError!} />}
             <Header currentUser={currentUser} onLogout={logout} />
             <main className="container mx-auto p-4 sm:p-6 lg:p-8">
                 {renderContent()}
@@ -38,9 +40,8 @@ const AppContent = () => {
 
 const App = () => {
     return (
-        <SmartHireProvider>
-            <AppContent />
-        </SmartHireProvider>
+        // FIX: Pass children as an explicit prop to work around a potential JSX parsing or type inference issue.
+        <SmartHireProvider children={<AppContent />} />
     );
 };
 

@@ -1,4 +1,5 @@
 
+
 import React, { useState, useMemo, useEffect, useRef, Fragment } from 'react';
 import { useSmartHire } from '../../hooks/useSmartHire';
 import type { Job, JobMatchScore, JobRecommendation, Question } from '../../types';
@@ -26,8 +27,44 @@ const timeAgo = (dateString: string): string => {
 };
 
 const inputStyle = "w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-shadow";
-const buttonPrimary = "bg-primary text-white font-bold py-2.5 px-6 rounded-lg hover:bg-primary-dark transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed";
+const buttonPrimary = "bg-gradient-primary text-white font-bold py-2.5 px-6 rounded-lg hover:brightness-110 transition-all duration-300 shadow-md hover:shadow-lg disabled:from-slate-200 disabled:to-slate-300 disabled:text-slate-500 disabled:shadow-none disabled:cursor-not-allowed";
 const buttonSecondary = "bg-slate-100 text-slate-800 font-bold py-2.5 px-6 rounded-lg hover:bg-slate-200 transition-colors";
+
+const ScoreDonut = ({ score, size = 56 }: { score?: number; size?: number; }) => {
+    if (score === undefined || score === null) return null;
+    const radius = size / 2 - 5;
+    const circumference = 2 * Math.PI * radius;
+    const offset = circumference - (score / 100) * circumference;
+
+    const getStrokeColor = () => {
+        if (score >= 75) return 'stroke-primary';
+        if (score >= 50) return 'stroke-accent-dark';
+        return 'stroke-red-500';
+    };
+    const getTextColor = () => {
+        if (score >= 75) return 'text-primary-dark';
+        if (score >= 50) return 'text-accent-dark';
+        return 'text-red-600';
+    };
+    
+    return (
+        <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
+            <svg className="absolute" width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+                <circle className="stroke-slate-200" strokeWidth="5" fill="transparent" r={radius} cx={size / 2} cy={size / 2} />
+                <circle
+                    className={`${getStrokeColor()} transition-all duration-1000 ease-out`}
+                    strokeWidth="5" strokeDasharray={circumference} strokeDashoffset={offset}
+                    strokeLinecap="round" fill="transparent"
+                    r={radius} cx={size / 2} cy={size / 2}
+                    style={{ transition: 'stroke-dashoffset 1s ease-out' }}
+                    transform={`rotate(-90 ${size / 2} ${size / 2})`}
+                />
+            </svg>
+            <span className={`text-base font-bold ${getTextColor()}`}>{score}</span>
+        </div>
+    );
+};
+
 
 const JobDetailSection = ({title, content}: {title: string; content?: string}) => {
     if(!content) return null;
@@ -224,13 +261,21 @@ const JobDetailModal = ({ job, hasApplied, onClose, onNavigateToApplications, on
         }
         if (!userProfile) {
             return (
-                <div className="bg-amber-50 p-4 rounded-lg border border-amber-200 text-center">
-                    <h4 className="font-bold text-amber-800 mb-2">Create Your Profile to Apply</h4>
-                    <p className="text-sm text-amber-700 mb-3">Upload your resume in the 'My Profile' tab to apply for jobs and unlock AI features like resume optimization.</p>
-                    <button onClick={onNavigateToProfile} className="bg-amber-500 text-white font-bold py-2 px-5 rounded-lg hover:bg-amber-600 transition-colors text-sm">
-                        Go to My Profile
-                    </button>
-                </div>
+                 <form onSubmit={handleSubmit} className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-4">
+                    <h4 className="font-bold text-slate-800 mb-1">Apply for this Job</h4>
+                    <p className="text-sm text-slate-600 -mt-3 mb-3">Your profile will be automatically created from your resume upon your first application.</p>
+                    <div className="flex flex-col sm:flex-row items-center gap-4">
+                        <div className="flex-grow w-full">
+                            <label htmlFor="resume-upload" className="sr-only">Upload Resume</label>
+                            <input id="resume-upload" type="file" onChange={handleFileChange} accept=".txt,.pdf,.md,.docx" required className={`${inputStyle} file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/20 file:text-primary hover:file:bg-primary/30`} />
+                            {resumeFile && <p className="text-xs text-slate-600 mt-1">Selected: {resumeFile.name}</p>}
+                        </div>
+                        <button type="submit" className="w-full sm:w-auto flex-shrink-0 bg-gradient-primary text-white font-bold py-2.5 px-6 rounded-lg hover:brightness-110 shadow-md">
+                            Submit Application
+                        </button>
+                    </div>
+                     {(applyError || contextError) && <p className="text-red-500 text-sm mt-2 text-center">{applyError || contextError}</p>}
+                </form>
             )
         }
         return (
@@ -243,7 +288,7 @@ const JobDetailModal = ({ job, hasApplied, onClose, onNavigateToApplications, on
                             <input id="resume-upload" type="file" onChange={handleFileChange} accept=".txt,.pdf,.md,.docx" className={`${inputStyle} file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/20 file:text-primary hover:file:bg-primary/30`} />
                             {resumeFile && <p className="text-xs text-slate-600 mt-1">Selected: {resumeFile.name}</p>}
                         </div>
-                        <button type="submit" className="w-full sm:w-auto flex-shrink-0 bg-primary text-white font-bold py-2.5 px-6 rounded-lg hover:bg-primary-dark transition-colors">
+                        <button type="submit" className="w-full sm:w-auto flex-shrink-0 bg-gradient-primary text-white font-bold py-2.5 px-6 rounded-lg hover:brightness-110 shadow-md">
                             Submit Application
                         </button>
                     </div>
@@ -261,7 +306,7 @@ const JobDetailModal = ({ job, hasApplied, onClose, onNavigateToApplications, on
                                 <p className="text-slate-600 text-sm">Optimizing your resume...</p>
                             </div>
                      ) : (
-                         <button onClick={handleOptimize} className="w-full font-semibold py-2.5 px-4 rounded-lg transition-colors bg-indigo-600 text-white hover:bg-indigo-700">
+                         <button onClick={handleOptimize} className="w-full font-semibold py-2.5 px-4 rounded-lg transition-all duration-300 bg-gradient-accent text-white hover:brightness-110 shadow-md hover:shadow-lg transform hover:scale-105">
                            ✨ Optimize Resume with AI
                          </button>
                      )}
@@ -333,7 +378,7 @@ interface JobCardProps {
     onSaveToggle: () => void;
 }
 const JobCard = ({ job, score, reason, hasApplied, isSaved, onSelect, onSaveToggle }: JobCardProps) => (
-     <div className={`relative p-5 rounded-xl border flex flex-col group transition-all duration-300 ${reason ? 'bg-primary/5 border-primary/50' : 'bg-white border-slate-200 hover:border-primary/80 hover:shadow-lg hover:-translate-y-1'}`}>
+     <div className={`relative p-5 rounded-xl border flex flex-col group transition-all duration-300 shadow-card hover:shadow-card-hover hover:-translate-y-1 ${reason ? 'bg-primary/5 border-primary/30' : 'bg-white border-slate-200'}`}>
         <div className="flex-grow">
             <div className="flex items-start justify-between">
                 <div className="flex items-start space-x-4">
@@ -345,17 +390,15 @@ const JobCard = ({ job, score, reason, hasApplied, isSaved, onSelect, onSaveTogg
                 </div>
                 {score !== undefined && (
                     <div className="text-center">
-                        <div className={`w-14 h-14 flex items-center justify-center rounded-full font-bold text-lg border-4 ${score >= 75 ? 'border-primary/80 bg-primary/10 text-primary-dark' : score >= 50 ? 'border-slate-400 bg-slate-100 text-slate-700' : 'border-slate-300 bg-slate-50 text-slate-500'}`}>
-                            {score}
-                        </div>
+                        <ScoreDonut score={score} />
                         <p className="text-xs text-slate-500 font-semibold mt-1">Match</p>
                     </div>
                 )}
             </div>
 
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-600 my-4">
-                <span className="flex items-center"><svg className="w-4 h-4 mr-1.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>{job.location || 'Remote'}</span>
-                <span className="flex items-center"><svg className="w-4 h-4 mr-1.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>{job.workModel}</span>
+            <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600 my-4">
+                <span className="flex items-center bg-slate-100 text-slate-700 px-2 py-1 rounded-full text-xs font-semibold"><svg className="w-4 h-4 mr-1.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>{job.location || 'Remote'}</span>
+                <span className="flex items-center bg-slate-100 text-slate-700 px-2 py-1 rounded-full text-xs font-semibold"><svg className="w-4 h-4 mr-1.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>{job.workModel}</span>
             </div>
 
             {reason && (
@@ -371,7 +414,7 @@ const JobCard = ({ job, score, reason, hasApplied, isSaved, onSelect, onSaveTogg
             <span className="text-xs text-slate-500">Posted {timeAgo(job.createdAt)}</span>
              <button 
                 onClick={onSelect} 
-                className={`font-semibold py-2 px-5 rounded-lg transition-colors text-sm ${hasApplied ? 'bg-slate-100 text-slate-800 hover:bg-slate-200' : 'bg-primary text-white hover:bg-primary-dark'}`}
+                className={`font-semibold py-2 px-5 rounded-lg transition-all duration-300 text-sm shadow-sm ${hasApplied ? 'bg-slate-100 text-slate-800 hover:bg-slate-200' : 'text-white bg-gradient-primary hover:brightness-110 transform hover:scale-105'}`}
             >
                 {hasApplied ? 'View Details' : 'View & Apply'}
             </button>
@@ -425,16 +468,18 @@ const JobGrid = ({ jobs, onNavigateToApplications, onNavigateToProfile, recommen
             {jobs.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {jobs.map(job => (
-                         <JobCard 
-                            key={job.id} 
-                            job={job}
-                            score={scores.find(s => s.jobId === job.id)?.matchScore}
-                            reason={recommendations.find(r => r.jobId === job.id)?.reason}
-                            hasApplied={appliedJobIds.has(job.id)}
-                            isSaved={savedJobs.has(job.id)}
-                            onSelect={() => setSelectedJob(job)}
-                            onSaveToggle={() => savedJobs.has(job.id) ? unsaveJob(job.id) : saveJob(job.id)}
-                        />
+                        // FIX: Wrap JobCard in a Fragment with a key to resolve the TypeScript error about the key prop.
+                         <Fragment key={job.id}>
+                            <JobCard 
+                                job={job}
+                                score={scores.find(s => s.jobId === job.id)?.matchScore}
+                                reason={recommendations.find(r => r.jobId === job.id)?.reason}
+                                hasApplied={appliedJobIds.has(job.id)}
+                                isSaved={savedJobs.has(job.id)}
+                                onSelect={() => setSelectedJob(job)}
+                                onSaveToggle={() => savedJobs.has(job.id) ? unsaveJob(job.id) : saveJob(job.id)}
+                            />
+                        </Fragment>
                     ))}
                 </div>
             ) : (
@@ -569,9 +614,12 @@ const SavedJobs = ({ onNavigateToApplications, onNavigateToProfile }: SavedJobsP
 };
 
 
-const EmailAgentWidget = () => {
-    const { emailAgentMessages, runEmailAgentStream, loading, requestAgentStop } = useSmartHire();
-    const [isOpen, setIsOpen] = useState(false);
+interface EmailAgentWidgetProps {
+    isOpen: boolean;
+    onClose: () => void;
+}
+const EmailAgentWidget = ({ isOpen, onClose }: EmailAgentWidgetProps) => {
+    const { emailAgentMessages, runEmailAgentStream, loading, requestAgentStop, openEmailAgent } = useSmartHire();
     const [prompt, setPrompt] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -589,7 +637,7 @@ const EmailAgentWidget = () => {
     if (!isOpen) {
         return (
             <button
-                onClick={() => setIsOpen(true)}
+                onClick={() => openEmailAgent()}
                 className="fixed bottom-6 right-6 bg-primary text-white rounded-full p-4 shadow-lg hover:bg-primary-dark transition-transform hover:scale-110 z-50"
                 aria-label="Open Email Assistant"
             >
@@ -605,7 +653,7 @@ const EmailAgentWidget = () => {
                     <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
                     <h3 className="text-lg font-bold text-slate-900">Email Assistant</h3>
                 </div>
-                <button onClick={() => setIsOpen(false)} className="text-2xl font-light text-slate-500 hover:text-slate-800">&times;</button>
+                <button onClick={onClose} className="text-2xl font-light text-slate-500 hover:text-slate-800">&times;</button>
             </div>
             
              <div className="flex-grow p-4 overflow-y-auto flex flex-col space-y-4">
@@ -660,7 +708,7 @@ const JobSeekerPortal = () => {
     type Tab = 'available' | 'saved' | 'applications' | 'notifications' | 'alerts' | 'calendar' | 'profile';
     const [activeTab, setActiveTab] = useState<Tab>('available');
     
-    const { jobs, currentUser } = useSmartHire();
+    const { jobs, currentUser, isEmailAgentOpen, closeEmailAgent } = useSmartHire();
     // FIX: Use a type predicate in the filter to ensure TypeScript correctly infers
     // that `uniqueLocations` is an array of strings, not `(string | undefined)[]`.
     // This resolves the error where an undefined value could be used as a React key.
@@ -688,7 +736,7 @@ const JobSeekerPortal = () => {
         { id: 'notifications', label: 'Notifications', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg> },
         { id: 'alerts', label: 'Job Alerts', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg> },
         { id: 'calendar', label: 'My Calendar', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg> },
-        { id: 'profile', label: 'My Profile', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg> },
+        { id: 'profile', label: 'My Profile', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg> },
     ];
 
     const getTabClass = (tabId: Tab) => `relative flex items-center space-x-2 px-3 sm:px-4 py-2.5 rounded-lg font-semibold transition-colors text-sm whitespace-nowrap ${activeTab === tabId ? 'text-primary' : 'text-slate-600 hover:text-primary'}`;
@@ -728,8 +776,8 @@ const JobSeekerPortal = () => {
             </div>
 
             {activeTab === 'available' && (
-                <div className="bg-white p-4 rounded-xl shadow-md border border-slate-200 mb-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 items-end">
-                    <div className="lg:col-span-2">
+                <div className="bg-white p-4 rounded-xl shadow-card border border-slate-200 mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 items-end">
+                    <div className="xl:col-span-2">
                         <label htmlFor="search-term" className="text-sm font-bold text-slate-800 mb-1 block">Search</label>
                         <div className="relative">
                             <input id="search-term" type="text" placeholder="Job title, keyword..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className={inputStyle}/>
@@ -761,13 +809,20 @@ const JobSeekerPortal = () => {
                             <option>Past month</option>
                         </select>
                     </div>
+                    <div>
+                        <label htmlFor="sort-by" className="text-sm font-bold text-slate-800 mb-1 block">Sort By</label>
+                        <select id="sort-by" value={sortBy} onChange={e => setSortBy(e.target.value as 'relevance' | 'date')} className={inputStyle}>
+                            <option value="relevance">Relevance</option>
+                            <option value="date">Newest</option>
+                        </select>
+                    </div>
                      <div>
                          <button
                             type="button"
                             onClick={handleClearFilters}
                             className="w-full bg-slate-100 text-slate-700 font-bold py-2 px-4 rounded-lg hover:bg-slate-200 transition-colors"
                         >
-                            Clear Filters
+                            Clear
                         </button>
                     </div>
                 </div>
@@ -778,7 +833,7 @@ const JobSeekerPortal = () => {
                 {renderContent()}
             </div>
             
-            <EmailAgentWidget />
+            <EmailAgentWidget isOpen={isEmailAgentOpen} onClose={closeEmailAgent} />
         </div>
     );
 };

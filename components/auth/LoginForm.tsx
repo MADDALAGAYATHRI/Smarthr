@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { useSmartHire } from '../../hooks/useSmartHire';
 
@@ -14,8 +13,7 @@ const LoginForm = ({ onForgotPassword }: LoginFormProps) => {
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        // FIX: The `login` function from useSmartHire context expects 2 arguments, but was passed 3. The `rememberMe` functionality is not implemented in the context.
-        login(email, password);
+        login(email, password, rememberMe);
     };
     
     const inputStyle = "mt-1 block w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-slate-50 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-shadow";
@@ -64,7 +62,7 @@ const LoginForm = ({ onForgotPassword }: LoginFormProps) => {
             </div>
             <button
                 type="submit"
-                className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-bold text-white bg-primary hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+                className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-md text-sm font-bold text-white bg-gradient-primary hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition-all duration-300"
             >
                 Login
             </button>

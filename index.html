@@ -4,11 +4,18 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SmartHire – HR Automation Platform</title>
+    <title>SmartHire – AI-Powered Recruitment</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body {
+        background-color: #f8fafc; /* slate-50 as fallback */
+        background-image: radial-gradient(#e2e8f0 1px, transparent 1px);
+        background-size: 20px 20px;
+      }
+    </style>
     <script>
       tailwind.config = {
         theme: {
@@ -22,6 +29,11 @@
                 light: '#38bdf8', // sky-400
                 dark: '#0284c7', // sky-600
               },
+               accent: {
+                DEFAULT: '#f59e0b', // amber-500
+                light: '#fbbf24', // amber-400
+                dark: '#d97706', // amber-600
+              },
               slate: {
                 50: '#f8fafc',
                 100: '#f1f5f9',
@@ -34,6 +46,14 @@
                 800: '#1e293b',
                 900: '#0f172a',
               }
+            },
+            backgroundImage: {
+              'gradient-primary': 'linear-gradient(to right, #38bdf8, #0ea5e9)',
+              'gradient-accent': 'linear-gradient(to right, #fbbf24, #f59e0b)',
+            },
+            boxShadow: {
+              'card': '0 4px 15px -1px rgb(0 0 0 / 0.05), 0 2px 8px -2px rgb(0 0 0 / 0.05)',
+              'card-hover': '0 10px 25px -3px rgb(0 0 0 / 0.08), 0 4px 10px -4px rgb(0 0 0 / 0.08)',
             },
             keyframes: {
               'fade-in-down': {
@@ -64,9 +84,9 @@
 }
 </script>
 </head>
-  <body class="bg-slate-50">
+  <body>
     <div id="root"></div>
-    <script src="/config.js"></script>
+    
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>

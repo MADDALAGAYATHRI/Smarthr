@@ -1,5 +1,8 @@
 {
   "name": "SmartHire – HR/Seeker ",
   "description": "SmartHire is an AI-powered recruitment automation system that connects Job Seekers with Recruiters. It digitizes the hiring process by handling job postings, resume uploads, AI-powered parsing and scoring, and candidate management.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
 }

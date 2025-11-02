@@ -1,7 +1,6 @@
-
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import { useSmartHire } from '../../hooks/useSmartHire';
-import type { Job, ChatMessage } from '../../types';
+import type { Job } from '../../types';
 
 const DeadlineCard = ({job}: {job: Job}) => {
     if (!job.applicationDeadline) return null;
@@ -24,7 +23,15 @@ const DeadlineCard = ({job}: {job: Job}) => {
 }
 
 const NotificationsLog = () => {
-    const { getEmailsForCurrentUser, jobs, savedJobs } = useSmartHire();
+    const { getEmailsForCurrentUser, jobs, savedJobs, markEmailsAsReadForCurrentUser } = useSmartHire();
+    
+    useEffect(() => {
+        // When the user views this component, mark all their emails as read.
+        if (markEmailsAsReadForCurrentUser) {
+            markEmailsAsReadForCurrentUser();
+        }
+    }, [markEmailsAsReadForCurrentUser]);
+    
     const emails = getEmailsForCurrentUser();
 
     const upcomingDeadlines = useMemo(() => {
@@ -47,7 +54,8 @@ const NotificationsLog = () => {
                  <div className="bg-white p-6 rounded-xl shadow-lg border border-slate-200">
                     <h3 className="text-xl font-bold text-slate-900 mb-4">Upcoming Deadlines for Saved Jobs</h3>
                     <div className="space-y-3">
-                        {upcomingDeadlines.map(job => <DeadlineCard key={job.id} job={job} />)}
+                        {/* FIX: Wrap DeadlineCard in a Fragment with a key to resolve the TypeScript error about the key prop. */}
+                        {upcomingDeadlines.map(job => <React.Fragment key={job.id}><DeadlineCard job={job} /></React.Fragment>)}
                     </div>
                  </div>
             )}
@@ -57,11 +65,14 @@ const NotificationsLog = () => {
                     <h3 className="text-xl font-bold text-slate-900 mb-4">Communication History</h3>
                     <div className="space-y-4">
                         {emails.map(email => (
-                            <div key={email.id} className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
+                            <div key={email.id} className={`p-4 border rounded-lg transition-colors ${!email.read ? 'bg-primary/5 border-primary/20' : 'bg-slate-50 border-slate-200'}`}>
                                 <div className="flex justify-between items-start">
-                                     <div>
-                                        <p className="font-bold text-slate-800">{email.subject}</p>
-                                        <p className="text-xs text-slate-500">For: {email.jobTitle}</p>
+                                    <div className="flex items-center space-x-3">
+                                        {!email.read && <div className="w-2.5 h-2.5 bg-primary rounded-full flex-shrink-0"></div>}
+                                         <div>
+                                            <p className="font-bold text-slate-800">{email.subject}</p>
+                                            <p className="text-xs text-slate-500">For: {email.jobTitle}</p>
+                                        </div>
                                     </div>
                                     <span className="text-xs text-slate-400">{new Date(email.sentAt).toLocaleString()}</span>
                                 </div>

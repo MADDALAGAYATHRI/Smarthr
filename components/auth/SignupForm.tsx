@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { useSmartHire } from '../../hooks/useSmartHire';
 import type { UserRole } from '../../types';
@@ -126,7 +125,7 @@ const SignupForm = () => {
 
             <button
                 type="submit"
-                className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-bold text-white bg-primary hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+                className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-md text-sm font-bold text-white bg-gradient-primary hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition-all duration-300"
             >
                 Sign Up
             </button>

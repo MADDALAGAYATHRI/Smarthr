@@ -1,16 +1,51 @@
-
 import React, { useState, useMemo, useCallback, Fragment, useEffect, useRef } from 'react';
 import { useSmartHire } from '../../hooks/useSmartHire';
-import type { Job, Candidate, ApplicationStatus, Question } from '../../types';
+import type { Job, Candidate, ApplicationStatus, Question, Application, CommunicationAnalysis } from '../../types';
 import EmailComposeModal from './EmailComposeModal';
 import CalendarView from './CalendarView';
+import HRNotificationsLog from './HRNotificationsLog';
 
 // --- STYLE CONSTANTS ---
 const inputStyle = "w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-shadow";
-const buttonPrimary = "bg-primary text-white font-bold py-2 px-4 rounded-lg hover:bg-primary-dark transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed";
+const buttonPrimary = "bg-gradient-primary text-white font-bold py-2 px-4 rounded-lg hover:brightness-110 transition-all duration-300 shadow-md hover:shadow-lg disabled:from-slate-200 disabled:to-slate-300 disabled:text-slate-500 disabled:shadow-none disabled:cursor-not-allowed";
 const buttonSecondary = "bg-slate-100 text-slate-800 font-bold py-2 px-4 rounded-lg hover:bg-slate-200 transition-colors";
 
 // --- HELPER COMPONENTS ---
+
+const ScoreDonut = ({ score, size = 48 }: { score: number; size?: number; }) => {
+    if (score === undefined || score === null) return null;
+    const radius = size / 2 - 4;
+    const circumference = 2 * Math.PI * radius;
+    const offset = circumference - (score / 100) * circumference;
+
+    const getStrokeColor = () => {
+        if (score >= 80) return 'stroke-primary';
+        if (score >= 60) return 'stroke-accent-dark';
+        return 'stroke-red-500';
+    };
+    const getTextColor = () => {
+        if (score >= 80) return 'text-primary-dark';
+        if (score >= 60) return 'text-accent-dark';
+        return 'text-red-600';
+    };
+    
+    return (
+        <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
+            <svg className="absolute" width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+                <circle className="stroke-slate-200" strokeWidth="4" fill="transparent" r={radius} cx={size / 2} cy={size / 2} />
+                <circle
+                    className={`${getStrokeColor()} transition-all duration-1000 ease-out`}
+                    strokeWidth="4" strokeDasharray={circumference} strokeDashoffset={offset}
+                    strokeLinecap="round" fill="transparent"
+                    r={radius} cx={size / 2} cy={size / 2}
+                    style={{ transition: 'stroke-dashoffset 1s ease-out' }}
+                    transform={`rotate(-90 ${size / 2} ${size / 2})`}
+                />
+            </svg>
+            <span className={`text-sm font-bold ${getTextColor()}`}>{score}</span>
+        </div>
+    );
+};
 
 const getStatusStyles = (status?: ApplicationStatus) => {
     switch (status) {
@@ -22,22 +57,29 @@ const getStatusStyles = (status?: ApplicationStatus) => {
     }
 };
 
-const CreateJobModal = ({ onClose }: { onClose: () => void }) => {
-    const { createJob, parseJobDescription } = useSmartHire();
+const JobEditorModal = ({ onClose, jobToEdit }: { onClose: () => void, jobToEdit?: Job }) => {
+    const { createJob, parseJobDescription, updateJob } = useSmartHire();
     const [isParsing, setIsParsing] = useState(false);
+    
+    const isEditMode = !!jobToEdit;
+
     const [jobData, setJobData] = useState({
-        title: '',
-        description: '',
-        requirements: '',
-        location: '',
-        salary: '',
-        workModel: 'On-site' as 'On-site' | 'Remote' | 'Hybrid',
-        applicationDeadline: '',
+        title: jobToEdit?.title || '',
+        description: jobToEdit?.description || '',
+        requirements: jobToEdit?.requirements || '',
+        location: jobToEdit?.location || '',
+        salary: jobToEdit?.salary || '',
+        workModel: jobToEdit?.workModel || 'On-site',
+        applicationDeadline: jobToEdit?.applicationDeadline ? new Date(jobToEdit.applicationDeadline).toISOString().split('T')[0] : '',
+        requireSelfVideo: jobToEdit?.requireSelfVideo || false,
+        selfVideoQuestion: jobToEdit?.selfVideoQuestion || 'Tell us about a challenging project you have worked on and what you learned from it.',
+        aiInterviewAfterScreening: jobToEdit?.aiInterviewAfterScreening ?? true,
     });
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        setJobData(prev => ({ ...prev, [name]: value }));
+        const { name, value, type } = e.target;
+        const isCheckbox = type === 'checkbox';
+        setJobData(prev => ({ ...prev, [name]: isCheckbox ? (e.target as HTMLInputElement).checked : value }));
     };
 
     const handleJdUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -69,13 +111,17 @@ const CreateJobModal = ({ onClose }: { onClose: () => void }) => {
             const today = new Date();
             today.setHours(0, 0, 0, 0); // Set to start of day for comparison
             const selectedDate = new Date(jobData.applicationDeadline);
-             if (selectedDate < today) {
+             if (selectedDate < today && !isEditMode) { // Allow past dates in edit mode
                 alert("Application deadline cannot be in the past.");
                 return;
             }
         }
         
-        createJob(jobData);
+        if (isEditMode) {
+            updateJob(jobToEdit.id, jobData);
+        } else {
+            createJob(jobData);
+        }
         onClose();
     };
 
@@ -88,7 +134,7 @@ const CreateJobModal = ({ onClose }: { onClose: () => void }) => {
                         <p className="text-slate-800 mt-4 font-semibold">Parsing Job Description...</p>
                     </div>
                 )}
-                <h3 className="text-2xl font-bold text-slate-900 mb-6">Create New Job Posting</h3>
+                <h3 className="text-2xl font-bold text-slate-900 mb-6">{isEditMode ? 'Edit Job Posting' : 'Create New Job Posting'}</h3>
                 
                 <div className="mb-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
                     <label htmlFor="jd-upload" className="block text-sm font-bold text-slate-700">Auto-fill with AI</label>
@@ -133,9 +179,46 @@ const CreateJobModal = ({ onClose }: { onClose: () => void }) => {
                             <input type="date" name="applicationDeadline" id="applicationDeadline" value={jobData.applicationDeadline} onChange={handleChange} className={inputStyle} />
                         </div>
                     </div>
+
+                    <div className="pt-4 space-y-4">
+                        <h4 className="text-md font-bold text-slate-800">Interview Settings</h4>
+                        <div className="relative flex items-start">
+                            <div className="flex h-6 items-center">
+                                <input id="aiInterviewAfterScreening" name="aiInterviewAfterScreening" type="checkbox" checked={jobData.aiInterviewAfterScreening} onChange={handleChange} className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"/>
+                            </div>
+                            <div className="ml-3 text-sm leading-6">
+                                <label htmlFor="aiInterviewAfterScreening" className="font-medium text-slate-900">AI Interview after ATS Screening</label>
+                                <p className="text-slate-500">Automatically invite candidates who pass the minimum ATS score to a live AI video interview.</p>
+                            </div>
+                        </div>
+                         <div className="relative flex items-start">
+                            <div className="flex h-6 items-center">
+                                <input id="requireSelfVideo" name="requireSelfVideo" type="checkbox" checked={jobData.requireSelfVideo} onChange={handleChange} className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"/>
+                            </div>
+                            <div className="ml-3 text-sm leading-6">
+                                <label htmlFor="requireSelfVideo" className="font-medium text-slate-900">Require Self-Video Introduction</label>
+                                <p className="text-slate-500">Candidates must submit a short video answering a pre-set question as part of their initial application.</p>
+                            </div>
+                        </div>
+                        {jobData.requireSelfVideo && (
+                            <div className="pl-9 mt-2 animate-fade-in-down">
+                                <label htmlFor="selfVideoQuestion" className="block text-sm font-medium text-slate-700">Video Introduction Question</label>
+                                <input 
+                                    type="text" 
+                                    name="selfVideoQuestion" 
+                                    id="selfVideoQuestion" 
+                                    value={jobData.selfVideoQuestion} 
+                                    onChange={handleChange} 
+                                    className={inputStyle} 
+                                    placeholder="e.g., What makes you a good fit for this role?"
+                                />
+                            </div>
+                        )}
+                    </div>
+
                     <div className="flex justify-end space-x-4 pt-4">
                         <button type="button" onClick={onClose} className={buttonSecondary}>Cancel</button>
-                        <button type="submit" className={buttonPrimary}>Create Job</button>
+                        <button type="submit" className={buttonPrimary}>{isEditMode ? 'Save Changes' : 'Create Job'}</button>
                     </div>
                 </form>
             </div>
@@ -143,32 +226,177 @@ const CreateJobModal = ({ onClose }: { onClose: () => void }) => {
     );
 };
 
-interface CandidateRowProps {
+interface ResumeDetailModalProps {
     candidate: Candidate;
-    onRequestStatusChange: (status: ApplicationStatus) => void;
-    currentStatus?: ApplicationStatus;
+    onClose: () => void;
+}
+const ResumeDetailModal = ({ candidate, onClose }: ResumeDetailModalProps) => {
+    const [isRawVisible, setIsRawVisible] = useState(false);
+
+    const Section = ({ title, children, defaultOpen = true }: { title: string, children: React.ReactNode, defaultOpen?: boolean}) => {
+        const [isOpen, setIsOpen] = useState(defaultOpen);
+        if (!children) return null;
+        return (
+            <div className="mb-2">
+                <button onClick={() => setIsOpen(!isOpen)} className="w-full text-left flex justify-between items-center py-3 px-4 bg-slate-100 hover:bg-slate-200 rounded-lg">
+                    <h4 className="text-lg font-bold text-slate-800">{title}</h4>
+                    <svg className={`w-5 h-5 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                </button>
+                {isOpen && <div className="p-4 animate-fade-in-down">{children}</div>}
+            </div>
+        );
+    };
+
+    return (
+        <div className="fixed inset-0 bg-slate-900 bg-opacity-75 flex items-center justify-center z-[60] p-4" onClick={onClose}>
+            <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-3xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="flex-shrink-0">
+                    <h3 className="text-2xl font-bold text-slate-900 mb-4">Resume: {candidate.name}</h3>
+                </div>
+                <div className="flex-grow overflow-y-auto pr-4 -mr-4">
+                    {/* FIX: Pass children as an explicit prop to work around potential JSX parsing or type inference issues. */}
+                    <Section title="Professional Summary" children={
+                        <p className="text-slate-700 leading-relaxed">{candidate.summary}</p>
+                    } />
+                    
+                    {/* FIX: Pass children as an explicit prop to work around potential JSX parsing or type inference issues. */}
+                    <Section title="Skills" children={
+                        <div className="flex flex-wrap gap-2">
+                            {(candidate.skills || []).map(skill => <span key={skill} className="px-3 py-1 rounded-full text-sm font-semibold bg-primary/10 text-primary-dark">{skill}</span>)}
+                        </div>
+                    } />
+                    
+                    {(candidate.projects || []).length > 0 && (
+                        // FIX: Pass children as an explicit prop to work around potential JSX parsing or type inference issues.
+                        <Section title="Key Projects" children={
+                            <ul className="list-disc list-inside space-y-2 text-slate-700">
+                                {candidate.projects!.map((p, i) => <li key={i}>{p}</li>)}
+                            </ul>
+                        } />
+                    )}
+
+                    {(candidate.publications || []).length > 0 && (
+                        // FIX: Pass children as an explicit prop to work around potential JSX parsing or type inference issues.
+                        <Section title="Publications" children={
+                            <ul className="list-disc list-inside space-y-2 text-slate-700">
+                                {candidate.publications!.map((p, i) => <li key={i}>{p}</li>)}
+                            </ul>
+                        } />
+                    )}
+
+                    {(candidate.certifications || []).length > 0 && (
+                        // FIX: Pass children as an explicit prop to work around potential JSX parsing or type inference issues.
+                        <Section title="Certifications" children={
+                            <ul className="list-disc list-inside space-y-2 text-slate-700">
+                                {candidate.certifications!.map((c, i) => <li key={i}>{c}</li>)}
+                            </ul>
+                        } />
+                    )}
+                    
+                    {/* FIX: Pass children as an explicit prop to work around potential JSX parsing or type inference issues. */}
+                     <Section title="Full Resume Text" defaultOpen={false} children={
+                        <pre className="whitespace-pre-wrap font-sans text-sm text-slate-700 bg-slate-50 p-4 rounded-lg border">{candidate.resumeText}</pre>
+                    } />
+                </div>
+
+                <div className="text-right mt-6 flex-shrink-0">
+                    <button onClick={onClose} className={buttonSecondary}>Close</button>
+                </div>
+            </div>
+        </div>
+    )
 }
 
-const CandidateRow = ({ candidate, onRequestStatusChange, currentStatus }: CandidateRowProps) => {
+interface CandidateRowProps {
+    candidate: Candidate;
+    application: Application;
+    onRequestStatusChange: (status: ApplicationStatus) => void | Promise<void>;
+    runVideoAnalysisAgent: (applicationId: string) => void;
+    analyzingVideoAppId: string | null;
+}
+
+const CandidateRow = ({ candidate, application, onRequestStatusChange, runVideoAnalysisAgent, analyzingVideoAppId }: CandidateRowProps) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [showResume, setShowResume] = useState(false);
+    const [showVideo, setShowVideo] = useState(false);
     const applicationDate = new Date(candidate.appliedAt).toLocaleDateString();
+
+    const isAnalyzing = analyzingVideoAppId === application.id;
+
+    const getScoreColor = (score: number) => {
+        if (score >= 80) return 'text-primary';
+        if (score >= 60) return 'text-slate-700';
+        return 'text-slate-500';
+    }
+
+    const SkillBreakdownDisplay = ({ skills, title }: { skills: {skill:string, score:number, rationale:string}[], title: string }) => (
+        <div className="my-4">
+            <p className="font-semibold text-indigo-900 mb-2">{title}:</p>
+            <div className="space-y-3">
+                {skills.map(skill => (
+                    <div key={skill.skill}>
+                        <div className="flex justify-between items-center text-sm mb-1">
+                            <p className="font-medium text-slate-700">{skill.skill}</p>
+                            <p className={`font-bold ${getScoreColor(skill.score)}`}>{skill.score}/100</p>
+                        </div>
+                        <div className="w-full bg-slate-200 rounded-full h-2">
+                            <div className="bg-primary h-2 rounded-full" style={{ width: `${skill.score}%` }}></div>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1 italic">{skill.rationale}</p>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+    
+    const CommunicationAnalysisDisplay = ({ analysis }: { analysis: CommunicationAnalysis }) => {
+        const metrics = [
+            { name: 'Clarity', ...analysis.clarity },
+            { name: 'Confidence', ...analysis.confidence },
+            { name: 'Articulation', ...analysis.articulation },
+            { name: 'Overall Fit', ...analysis.overallFit },
+        ];
+        return (
+            <div className="my-4">
+                <p className="font-semibold text-indigo-900 mb-2">Communication & Fit Analysis:</p>
+                <div className="space-y-3">
+                    {metrics.map(metric => (
+                        <div key={metric.name}>
+                            <div className="flex justify-between items-center text-sm mb-1">
+                                <p className="font-medium text-slate-700">{metric.name}</p>
+                                <p className={`font-bold ${getScoreColor(metric.score)}`}>{metric.score}/100</p>
+                            </div>
+                            <div className="w-full bg-slate-200 rounded-full h-2">
+                                <div className="bg-primary h-2 rounded-full" style={{ width: `${metric.score}%` }}></div>
+                            </div>
+                            <p className="text-xs text-slate-500 mt-1 italic">{metric.rationale}</p>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    };
+
 
     return (
         <>
             {showResume && (
-                <div className="fixed inset-0 bg-slate-900 bg-opacity-75 flex items-center justify-center z-[60] p-4" onClick={() => setShowResume(false)}>
-                    <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-3xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-                        <h3 className="text-2xl font-bold text-slate-900 mb-4">Resume: {candidate.name}</h3>
-                        <pre className="whitespace-pre-wrap font-sans text-sm text-slate-700 bg-slate-50 p-4 rounded-lg border">{candidate.resumeText}</pre>
+                <ResumeDetailModal candidate={candidate} onClose={() => setShowResume(false)} />
+            )}
+
+            {showVideo && application.videoInterviewUrl && (
+                 <div className="fixed inset-0 bg-slate-900 bg-opacity-75 flex items-center justify-center z-[60] p-4" onClick={() => setShowVideo(false)}>
+                    <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-3xl" onClick={e => e.stopPropagation()}>
+                        <h3 className="text-2xl font-bold text-slate-900 mb-4">AI Interview: {candidate.name}</h3>
+                        <video src={application.videoInterviewUrl} controls autoPlay className="w-full rounded-lg bg-slate-900"></video>
                         <div className="text-right mt-6">
-                            <button onClick={() => setShowResume(false)} className={buttonSecondary}>Close</button>
+                            <button onClick={() => setShowVideo(false)} className={buttonSecondary}>Close</button>
                         </div>
                     </div>
                 </div>
             )}
         
-            <div className="bg-white rounded-lg border border-slate-200 transition-shadow hover:shadow-md">
+            <div className="bg-white rounded-lg border border-slate-200 transition-shadow hover:shadow-card">
                 <div 
                     className="flex items-center justify-between p-4 cursor-pointer"
                     onClick={() => setIsExpanded(!isExpanded)}
@@ -182,12 +410,18 @@ const CandidateRow = ({ candidate, onRequestStatusChange, currentStatus }: Candi
                     </div>
                     <div className="flex items-center space-x-4 sm:space-x-6 ml-4">
                         <div className="text-center">
-                            <p className="text-xs text-slate-500 font-semibold uppercase">Score</p>
-                            <p className={`font-bold text-xl ${candidate.score >= 70 ? 'text-primary' : candidate.score >= 50 ? 'text-slate-700' : 'text-slate-500'}`}>{candidate.score}</p>
+                            <p className="text-xs text-slate-500 font-semibold uppercase mb-1">ATS Score</p>
+                            <ScoreDonut score={candidate.score} />
                         </div>
+                        {application.interviewScore !== undefined && (
+                            <div className="text-center">
+                                <p className="text-xs text-slate-500 font-semibold uppercase mb-1">Interview</p>
+                                <ScoreDonut score={application.interviewScore} />
+                            </div>
+                        )}
                         <div className="w-32 text-center hidden sm:block">
-                            <span className={`px-3 py-1 text-xs font-semibold rounded-full ${getStatusStyles(currentStatus)}`}>
-                                {currentStatus || 'N/A'}
+                            <span className={`px-3 py-1 text-xs font-semibold rounded-full ${getStatusStyles(application.status)}`}>
+                                {application.status}
                             </span>
                         </div>
                         <svg className={`w-5 h-5 text-slate-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
@@ -195,30 +429,79 @@ const CandidateRow = ({ candidate, onRequestStatusChange, currentStatus }: Candi
                 </div>
 
                 {isExpanded && (
-                    <div className="p-4 border-t border-slate-200 animate-fade-in-down">
-                        <p className="text-sm text-slate-600 my-2 bg-slate-50 p-3 rounded border border-slate-200">{candidate.summary}</p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm my-4">
-                            <div>
-                                <p className="font-semibold text-slate-700 mb-1">Strengths</p>
-                                <ul className="list-disc list-inside space-y-1">
-                                    {candidate.strengths.map(s => <li key={s} className="text-slate-600">{s}</li>)}
-                                </ul>
+                    <div className="p-4 border-t border-slate-200 animate-fade-in-down space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="p-4 bg-slate-50 rounded-lg border">
+                                 <h4 className="font-bold text-slate-800 mb-2">ATS Evaluation</h4>
+                                 <p className="text-sm text-slate-600 my-2 italic">"{candidate.summary}"</p>
+                                 <div className="text-sm my-4">
+                                    <p className="font-semibold text-slate-700 mb-2">Strengths</p>
+                                    <div className="flex flex-wrap gap-2">
+                                        {candidate.strengths.map(s => <span key={s} className="px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">{s}</span>)}
+                                    </div>
+                                </div>
+                                <div className="text-sm my-4">
+                                    <p className="font-semibold text-slate-700 mb-2">Weaknesses</p>
+                                    <div className="flex flex-wrap gap-2">
+                                        {candidate.weaknesses.map(w => <span key={w} className="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">{w}</span>)}
+                                    </div>
+                                </div>
                             </div>
-                             <div>
-                                <p className="font-semibold text-slate-700 mb-1">Weaknesses</p>
-                                <ul className="list-disc list-inside space-y-1">
-                                    {candidate.weaknesses.map(w => <li key={w} className="text-slate-600">{w}</li>)}
-                                </ul>
-                            </div>
+
+                            {application.interviewScore !== undefined && (
+                                <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-200">
+                                    <h4 className="font-bold text-indigo-900 mb-2">AI Interview Analysis</h4>
+                                    <p className="text-sm text-indigo-800 my-2 italic">"{application.aiEvaluationSummary}"</p>
+                                    
+                                    {application.skillBreakdown && <SkillBreakdownDisplay skills={application.skillBreakdown} title="Technical Skill Breakdown" />}
+                                    {application.communicationAnalysis && <CommunicationAnalysisDisplay analysis={application.communicationAnalysis} />}
+
+                                    <div className="mt-4 pt-3 border-t border-indigo-200 text-center">
+                                         <p className="text-sm font-medium text-indigo-900">AI Recommendation: <span className="font-bold">{application.recommendation}</span></p>
+                                    </div>
+                                </div>
+                            )}
                         </div>
+
                          <div className="mt-4 pt-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
-                            <button onClick={() => setShowResume(true)} className={buttonSecondary}>View Full Resume</button>
+                            <div className="flex flex-wrap gap-2">
+                                <button onClick={() => setShowResume(true)} className={buttonSecondary}>View Full Resume</button>
+                                {application.videoInterviewUrl && (
+                                    <button onClick={() => setShowVideo(true)} className="bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-700 transition-colors flex items-center space-x-2">
+                                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 001.553.832l3-2a1 1 0 000-1.664l-3-2z"></path></svg>
+                                        <span>Watch Interview</span>
+                                    </button>
+                                )}
+                                {application.videoInterviewUrl && application.interviewScore === undefined && (
+                                    <button 
+                                        onClick={() => runVideoAnalysisAgent(application.id)} 
+                                        className="bg-primary text-white font-bold py-2 px-4 rounded-lg hover:bg-primary-dark transition-colors flex items-center space-x-2 disabled:bg-slate-300"
+                                        disabled={isAnalyzing}
+                                    >
+                                        {isAnalyzing ? (
+                                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                                        ) : (
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547a2 2 0 00-.547 1.806l.477 2.387a6 6 0 00.517 3.86l.158.318a6 6 0 01.517 3.86l-.477 2.387a2 2 0 00.547 1.806a2 2 0 001.806.547l2.387-.477a6 6 0 003.86-.517l.318-.158a6 6 0 013.86-.517l2.387.477a2 2 0 001.806-.547a2 2 0 00.547-1.806l-.477-2.387a6 6 0 00-.517-3.86l-.158-.318a6 6 0 01-.517-3.86l.477-2.387a2 2 0 00-.547-1.806zM12 15a3 3 0 100-6 3 3 0 000 6z" transform="translate(-2 -3)"/></svg>
+                                        )}
+                                        <span>{isAnalyzing ? 'Analyzing...' : 'Analyze with AI Agent'}</span>
+                                    </button>
+                                )}
+                                {application.status !== 'Rejected' && application.status !== 'Hired' && (
+                                    <button 
+                                        onClick={() => onRequestStatusChange('Rejected')} 
+                                        className="bg-red-100 text-red-800 font-bold py-2 px-4 rounded-lg hover:bg-red-200 transition-colors flex items-center space-x-2"
+                                    >
+                                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd"></path></svg>
+                                        <span>Reject Candidate</span>
+                                    </button>
+                                )}
+                            </div>
                             <div className="flex items-center space-x-2">
                                 <label htmlFor={`status-${candidate.id}`} className="text-sm font-medium text-slate-700">Update Status:</label>
                                 <select
                                     id={`status-${candidate.id}`}
-                                    value={currentStatus || 'Under Review'}
-                                    onChange={(e) => onRequestStatusChange(e.target.value as ApplicationStatus)}
+                                    value={application.status}
+                                    onChange={async (e) => await onRequestStatusChange(e.target.value as ApplicationStatus)}
                                     className="px-2 py-1 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary text-sm bg-white cursor-pointer"
                                     title="Change candidate status and send email notification."
                                 >
@@ -302,7 +585,7 @@ const JobQnA = ({ job }: { job: Job }) => {
     };
 
     return (
-        <div className="bg-white p-6 rounded-xl shadow-lg border border-slate-200">
+        <div className="bg-white p-6 rounded-xl shadow-card border border-slate-200">
             <h4 className="text-xl font-bold text-slate-900 mb-4">Candidate Q&A ({questions.length})</h4>
             {questions.length === 0 ? (
                 <p className="text-slate-500 text-sm">No questions have been asked for this job yet.</p>
@@ -355,10 +638,12 @@ const JobQnA = ({ job }: { job: Job }) => {
 
 const JobDetail = ({ job, onBack }: { job: Job; onBack: () => void }) => {
     type SortByType = 'score' | 'name' | 'date';
-    const { getCandidatesForJob, getApplicationForCandidate, updateApplicationStatus, processApplicationsAgent, exportCandidates, loading, updateJobCriteria, clearProcessingAgentLogs, logEmail } = useSmartHire();
+    const { getCandidatesForJob, getApplicationForCandidate, updateApplicationStatus, processApplicationsAgent, exportCandidates, loading, updateJobCriteria, clearProcessingAgentLogs, logEmail, closeJob, runVideoAnalysisAgent, analyzingVideoAppId } = useSmartHire();
     const candidates = getCandidatesForJob(job.id);
     
     const [isAgentModalOpen, setIsAgentModalOpen] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
+    const [isCloseConfirmOpen, setIsCloseConfirmOpen] = useState(false);
     const [emailModalState, setEmailModalState] = useState<{ candidate: Candidate; job: Job; status: ApplicationStatus } | null>(null);
     const [candidateSearch, setCandidateSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState('All');
@@ -418,6 +703,10 @@ const JobDetail = ({ job, onBack }: { job: Job; onBack: () => void }) => {
         setEmailModalState(null);
     };
 
+    const handleCloseJob = () => {
+        setIsCloseConfirmOpen(true);
+    };
+
     const deadlinePassed = job.applicationDeadline && new Date(job.applicationDeadline) < new Date();
     let processButtonText = 'Processing enabled after deadline';
     let isProcessButtonDisabled = true;
@@ -447,18 +736,56 @@ const JobDetail = ({ job, onBack }: { job: Job; onBack: () => void }) => {
                     onClose={() => setIsAgentModalOpen(false)}
                 />
             )}
+            {isEditing && <JobEditorModal jobToEdit={job} onClose={() => setIsEditing(false)} />}
+            {isCloseConfirmOpen && (
+                <div className="fixed inset-0 bg-slate-900 bg-opacity-75 flex items-center justify-center z-50 p-4" onClick={() => setIsCloseConfirmOpen(false)}>
+                    <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-md text-center" onClick={e => e.stopPropagation()}>
+                        <h3 className="text-xl font-bold text-slate-900 mb-2">Are you sure?</h3>
+                        <p className="text-slate-600 mb-6">Are you sure you want to close the "{job.title}" job posting? This will prevent new applications but won't affect existing candidates.</p>
+                        <div className="flex justify-center space-x-4">
+                            <button onClick={() => setIsCloseConfirmOpen(false)} className={buttonSecondary}>
+                                Cancel
+                            </button>
+                            <button 
+                                onClick={() => {
+                                    closeJob(job.id);
+                                    setIsCloseConfirmOpen(false);
+                                }} 
+                                className="bg-red-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-700 transition-colors"
+                            >
+                                Confirm & Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             <div className="mb-6">
                 <button onClick={onBack} className="flex items-center text-sm font-semibold text-primary hover:underline">
                      <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
                     Back to All Jobs
                 </button>
-                <h3 className="text-2xl font-bold text-slate-900 mt-2">{job.title}</h3>
-                <p className={`text-sm font-bold ${job.status === 'Open' ? 'text-primary' : 'text-slate-500'}`}>{job.status}</p>
+                <div className="flex justify-between items-start mt-2">
+                    <div>
+                        <h3 className="text-2xl font-bold text-slate-900">{job.title}</h3>
+                        <p className={`text-sm font-bold ${job.status === 'Open' ? 'text-primary' : 'text-slate-500'}`}>{job.status}</p>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                        <button onClick={() => setIsEditing(true)} className={buttonSecondary}>Edit Job</button>
+                        {job.status === 'Open' && (
+                            <button 
+                                onClick={handleCloseJob} 
+                                className="bg-red-100 text-red-800 font-bold py-2 px-4 rounded-lg hover:bg-red-200 transition-colors"
+                            >
+                                Close Job
+                            </button>
+                        )}
+                    </div>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 space-y-6">
-                     <div className="bg-white p-6 rounded-xl shadow-lg border border-slate-200">
+                     <div className="bg-white p-6 rounded-xl shadow-card border border-slate-200">
                         <h4 className="text-xl font-bold text-slate-900 mb-4">Candidates ({sortedAndFilteredCandidates.length})</h4>
                         
                         <div className="flex flex-col sm:flex-row gap-4 mb-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
@@ -490,16 +817,27 @@ const JobDetail = ({ job, onBack }: { job: Job; onBack: () => void }) => {
                              <div className="space-y-4">
                                 {sortedAndFilteredCandidates.map(candidate => {
                                     const app = getApplicationForCandidate(candidate.id);
-                                    return <CandidateRow
-                                        key={candidate.id}
+                                    if (!app) return null;
+                                    {/* FIX: Wrap CandidateRow in a Fragment with a key to resolve the TypeScript error about the key prop. */}
+                                    return <Fragment key={candidate.id}>
+                                        <CandidateRow
                                         candidate={candidate}
-                                        onRequestStatusChange={(newStatus) => {
+                                        application={app}
+                                        analyzingVideoAppId={analyzingVideoAppId}
+                                        runVideoAnalysisAgent={runVideoAnalysisAgent}
+                                        onRequestStatusChange={async (newStatus) => {
                                             if (app && app.status !== newStatus) {
-                                                setEmailModalState({ candidate, job, status: newStatus });
+                                                if (newStatus === 'Hired') {
+                                                    if (window.confirm(`Are you sure you want to mark ${candidate.name} as Hired? An offer email will be automatically generated and logged.`)) {
+                                                        await updateApplicationStatus(app.id, newStatus);
+                                                    }
+                                                } else {
+                                                    setEmailModalState({ candidate, job, status: newStatus });
+                                                }
                                             }
                                         }}
-                                        currentStatus={app?.status}
-                                    />;
+                                    />
+                                    </Fragment>;
                                 })}
                             </div>
                         ) : (
@@ -511,7 +849,7 @@ const JobDetail = ({ job, onBack }: { job: Job; onBack: () => void }) => {
                     <JobQnA job={job} />
                 </div>
                  <div className="lg:col-span-1 space-y-6">
-                    <div className="bg-white p-6 rounded-xl shadow-lg border border-slate-200">
+                    <div className="bg-white p-6 rounded-xl shadow-card border border-slate-200">
                         <h4 className="text-xl font-bold text-slate-900 mb-4">Automation & Export</h4>
                         <form onSubmit={handleCriteriaUpdate} className="space-y-4">
                             <div>
@@ -587,34 +925,54 @@ interface JobListProps {
 }
 const JobList = ({ jobs, onSelectJob, onCreateJob }: JobListProps) => {
     const [searchTerm, setSearchTerm] = useState('');
+    const [statusFilter, setStatusFilter] = useState<'All' | 'Open' | 'Closed'>('All');
     const { currentUser } = useSmartHire();
 
     const myJobs = useMemo(() => {
         if (!currentUser) return [];
         return jobs
             .filter(job => job.hrId === currentUser.id)
+            .filter(job => {
+                if (statusFilter === 'All') return true;
+                return job.status === statusFilter;
+            })
             .filter(job => job.title.toLowerCase().includes(searchTerm.toLowerCase()));
-    }, [jobs, currentUser, searchTerm]);
+    }, [jobs, currentUser, searchTerm, statusFilter]);
     
     return (
-        <div className="bg-white p-6 rounded-xl shadow-lg border border-slate-200">
+        <div className="bg-white p-6 rounded-xl shadow-card border border-slate-200">
              <div className="flex justify-between items-center mb-4">
                 <h3 className="text-xl font-bold text-slate-900">My Job Postings ({myJobs.length})</h3>
                 <button onClick={onCreateJob} className={buttonPrimary}>
                     + Create New Job
                 </button>
             </div>
-            <div className="relative mb-4">
-                <input type="text" placeholder="Search jobs by title..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className={inputStyle} />
-                <svg className="w-5 h-5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            <div className="flex flex-col sm:flex-row gap-4 mb-4">
+                <div className="relative flex-grow">
+                    <input type="text" placeholder="Search jobs by title..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className={inputStyle} />
+                    <svg className="w-5 h-5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                </div>
+                <div className="flex-shrink-0">
+                    <label htmlFor="hr-status-filter" className="sr-only">Filter by Status</label>
+                    <select
+                        id="hr-status-filter"
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value as 'All' | 'Open' | 'Closed')}
+                        className={inputStyle}
+                    >
+                        <option value="All">All Statuses</option>
+                        <option value="Open">Open</option>
+                        <option value="Closed">Closed</option>
+                    </select>
+                </div>
             </div>
 
             <div className="space-y-4">
                 {myJobs.length > 0 ? (
-                    myJobs.map(job => <JobRow key={job.id} job={job} onSelect={() => onSelectJob(job.id)} />)
+                    myJobs.map(job => <Fragment key={job.id}><JobRow job={job} onSelect={() => onSelectJob(job.id)} /></Fragment>)
                 ) : (
                      <div className="text-center py-10">
-                        <p className="text-slate-500">No job postings found.</p>
+                        <p className="text-slate-500">No job postings found for the selected criteria.</p>
                     </div>
                 )}
             </div>
@@ -639,7 +997,7 @@ const StrategicAgentView = () => {
     };
 
     return (
-         <div className="bg-white p-6 rounded-xl shadow-lg border border-slate-200">
+         <div className="bg-white p-6 rounded-xl shadow-card border border-slate-200">
              <div className="flex justify-between items-center mb-4">
                 <div className="flex items-center space-x-3">
                     <svg className="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M12 6V3m0 18v-3M5.636 5.636l-1.414-1.414m15.556 15.556l-1.414-1.414M19.778 5.636l-1.414 1.414M4.222 19.778l1.414-1.414M12 12a6 6 0 110-12 6 6 0 010 12z"></path></svg>
@@ -693,7 +1051,7 @@ const MasterAgentView = () => {
     }, [masterAgentLogs]);
 
     return (
-         <div className="bg-white p-6 rounded-xl shadow-lg border border-slate-200">
+         <div className="bg-white p-6 rounded-xl shadow-card border border-slate-200">
              <div className="flex items-center space-x-3 mb-4">
                  <svg className="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547a2 2 0 00-.547 1.806l.477 2.387a6 6 0 00.517 3.86l.158.318a6 6 0 01.517 3.86l-.477 2.387a2 2 0 00.547 1.806a2 2 0 001.806.547l2.387-.477a6 6 0 003.86-.517l.318-.158a6 6 0 013.86-.517l2.387.477a2 2 0 001.806-.547a2 2 0 00.547-1.806l-.477-2.387a6 6 0 00-.517-3.86l-.158-.318a6 6 0 01-.517-3.86l.477-2.387a2 2 0 00-.547-1.806zM12 15a3 3 0 100-6 3 3 0 000 6z" transform="translate(-2 -3)" /></svg>
                  <h3 className="text-xl font-bold text-slate-900">Master Agent Log</h3>
@@ -712,10 +1070,12 @@ const MasterAgentView = () => {
 };
 
 const HRDashboard = () => {
-    type Tab = 'postings' | 'calendar' | 'strategic_agent' | 'master_agent';
-    const { jobs, selectedJob, selectJob } = useSmartHire();
+    type Tab = 'postings' | 'calendar' | 'notifications' | 'strategic_agent' | 'master_agent';
+    const { jobs, selectedJob, selectJob, getEmailsForCurrentUser } = useSmartHire();
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<Tab>('postings');
+
+    const notificationsCount = getEmailsForCurrentUser().filter(e => !e.read).length;
 
     if (selectedJob) {
         return <JobDetail job={selectedJob} onBack={() => selectJob(null)} />;
@@ -725,7 +1085,7 @@ const HRDashboard = () => {
 
     return (
         <div>
-            {isCreateModalOpen && <CreateJobModal onClose={() => setIsCreateModalOpen(false)} />}
+            {isCreateModalOpen && <JobEditorModal onClose={() => setIsCreateModalOpen(false)} />}
             <div className="flex justify-between items-center mb-6">
                 <h2 className="text-3xl font-bold text-slate-900">HR Dashboard</h2>
                 <div className="bg-white p-1.5 rounded-lg shadow-md border border-slate-200">
@@ -737,6 +1097,13 @@ const HRDashboard = () => {
                         <button onClick={() => setActiveTab('calendar')} className={getTabClass('calendar')}>
                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                            <span className="hidden sm:inline">Calendar</span>
+                        </button>
+                         <button onClick={() => setActiveTab('notifications')} className={getTabClass('notifications')}>
+                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+                           <span className="hidden sm:inline">Notifications</span>
+                           {notificationsCount > 0 && (
+                               <span className="ml-2 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">{notificationsCount}</span>
+                           )}
                         </button>
                          <button onClick={() => setActiveTab('strategic_agent')} className={getTabClass('strategic_agent')}>
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
@@ -753,6 +1120,7 @@ const HRDashboard = () => {
             <div className="animate-fade-in-up">
                 {activeTab === 'postings' && <JobList jobs={jobs} onSelectJob={(id) => selectJob(id)} onCreateJob={() => setIsCreateModalOpen(true)} />}
                 {activeTab === 'calendar' && <CalendarView />}
+                {activeTab === 'notifications' && <HRNotificationsLog />}
                 {activeTab === 'strategic_agent' && <StrategicAgentView />}
                 {activeTab === 'master_agent' && <MasterAgentView />}
             </div>
